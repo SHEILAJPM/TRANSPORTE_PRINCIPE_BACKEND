@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10.5px; color: #1a1a1a; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1a1a1a; padding-bottom: 10px; }
+  header .marca { display: flex; align-items: center; gap: 10px; }
+  header img { max-height: 52px; max-width: 140px; object-fit: contain; }
+  header .empresa-nombre { font-size: 13px; font-weight: bold; color: #1a1a1a; }
+  header .empresa-ruc { font-size: 10px; color: #555; }
+  .doc-titulo { text-align: right; }
+  .doc-titulo .badge { display: inline-block; background: #b91c34; color: #fff; font-weight: bold; font-size: 13px; padding: 5px 14px; border-radius: 4px; }
+  .doc-titulo .numero { font-size: 15px; font-weight: bold; margin-top: 4px; }
+  .doc-titulo .fecha { font-size: 9.5px; color: #555; margin-top: 2px; }
+
+  .seccion-titulo { background: #1a1a1a; color: #fff; font-size: 9.5px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 8px; margin-top: 14px; }
+  .info-grid { display: flex; gap: 16px; margin-top: 8px; }
+  .info-grid .col { flex: 1; }
+  .info-grid p { margin: 2px 0; }
+  .info-grid .label { color: #777; font-size: 9px; text-transform: uppercase; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  td, th { padding: 6px 8px; border: 1px solid #ddd; text-align: left; }
+  th { background: #f4f4f4; font-size: 9.5px; text-transform: uppercase; color: #555; }
+
+  .totales { width: 55%; margin-left: auto; margin-top: 10px; }
+  .totales td { border: none; text-align: right; padding: 3px 8px; }
+  .totales tr.total td { border-top: 2px solid #1a1a1a; font-weight: bold; font-size: 12px; color: #b91c34; }
+
+  .condiciones { margin-top: 18px; padding: 10px 12px; background: #faf2f3; border-left: 3px solid #b91c34; font-size: 9.5px; white-space: pre-line; line-height: 1.5; }
+  footer { margin-top: 30px; text-align: center; font-size: 8.5px; color: #999; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="marca">
+      {% if empresa.logo_url %}<img src="{{ empresa.logo_url }}" alt="logo">{% endif %}
+      <div>
+        <div class="empresa-nombre">{{ empresa.nombre_comercial or empresa.razon_social }}</div>
+        <div class="empresa-ruc">RUC {{ empresa.ruc }}{% if empresa.direccion_fiscal %} — {{ empresa.direccion_fiscal }}{% endif %}</div>
+      </div>
+    </div>
+    <div class="doc-titulo">
+      <span class="badge">COTIZACIÓN</span>
+      <div class="numero">{{ cotizacion.numero }}</div>
+      <div class="fecha">Emitida: {{ cotizacion.fecha_emision.strftime('%d/%m/%Y') }} · Válida por {{ cotizacion.validez_dias }} días</div>
+    </div>
+  </header>
+
+  <div class="seccion-titulo">Cliente</div>
+  <div class="info-grid">
+    <div class="col">
+      <p><strong>{{ cliente.razon_social }}</strong></p>
+      <p>{{ cliente.tipo_documento }} {{ cliente.numero_documento }}</p>
+    </div>
+    <div class="col">
+      {% if cliente.direccion %}<p>{{ cliente.direccion }}</p>{% endif %}
+      <p>{{ [cliente.distrito, cliente.provincia, cliente.departamento] | select | join(', ') }}</p>
+    </div>
+  </div>
+
+  <div class="seccion-titulo">Ruta y Servicio</div>
+  <div class="info-grid">
+    <div class="col">
+      <p class="label">Origen</p>
+      <p>{{ cotizacion.origen_direccion }}<br>{{ cotizacion.origen_distrito }}, {{ cotizacion.origen_provincia }}, {{ cotizacion.origen_departamento }}</p>
+    </div>
+    <div class="col">
+      <p class="label">Destino</p>
+      <p>{{ cotizacion.destino_direccion }}<br>{{ cotizacion.destino_distrito }}, {{ cotizacion.destino_provincia }}, {{ cotizacion.destino_departamento }}</p>
+    </div>
+  </div>
+
+  <table>
+    <tr><th>Descripción del servicio</th><th>N.° Camiones</th><th>Peso (TM)</th></tr>
+    <tr>
+      <td>{{ cotizacion.descripcion_servicio }}</td>
+      <td>{{ cotizacion.cantidad_camiones }}</td>
+      <td>{{ "%.3f"|format(cotizacion.peso_tm) }}</td>
+    </tr>
+  </table>
+
+  <table class="totales">
+    <tr><td>Precio Base:</td><td>S/ {{ "%.2f"|format(cotizacion.precio_base) }}</td></tr>
+    <tr><td>{% if cotizacion.porcentaje_igv > 0 %}IGV ({{ cotizacion.porcentaje_igv }}%):{% else %}IGV:{% endif %}</td>
+        <td>{% if cotizacion.porcentaje_igv > 0 %}S/ {{ "%.2f"|format(cotizacion.monto_igv) }}{% else %}No aplica{% endif %}</td></tr>
+    <tr class="total"><td>TOTAL:</td><td>S/ {{ "%.2f"|format(cotizacion.precio_total) }}</td></tr>
+  </table>
+
+  <div class="condiciones">
+    <strong>Condiciones Comerciales</strong><br>
+    {{ cotizacion.condiciones_comerciales }}
+  </div>
+
+  <footer>{{ empresa.razon_social }} · RUC {{ empresa.ruc }} · Documento generado por el sistema de gestión Transporte Príncipe</footer>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10.5px; color: #1a1a1a; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1a1a1a; padding-bottom: 10px; }
+  header .marca { display: flex; align-items: center; gap: 10px; }
+  header img { max-height: 52px; max-width: 140px; object-fit: contain; }
+  header .empresa-nombre { font-size: 13px; font-weight: bold; }
+  header .empresa-ruc { font-size: 10px; color: #555; }
+
+  .doc-titulo { text-align: center; border: 2px solid #b91c34; border-radius: 4px; padding: 8px 16px; min-width: 200px; }
+  .doc-titulo .badge { font-weight: bold; color: #b91c34; font-size: 11px; }
+  .doc-titulo .numero { font-size: 15px; font-weight: bold; margin-top: 2px; }
+
+  .seccion-titulo { background: #1a1a1a; color: #fff; font-size: 9.5px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 8px; margin-top: 14px; }
+  .info-grid { display: flex; gap: 16px; margin-top: 8px; }
+  .info-grid .col { flex: 1; }
+  .info-grid p { margin: 2px 0; }
+  .info-grid .label { color: #777; font-size: 9px; text-transform: uppercase; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  td, th { padding: 6px 8px; border: 1px solid #ddd; text-align: left; }
+  th { background: #f4f4f4; font-size: 9.5px; text-transform: uppercase; color: #555; }
+
+  footer { margin-top: 30px; text-align: center; font-size: 8.5px; color: #999; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="marca">
+      {% if empresa.logo_url %}<img src="{{ empresa.logo_url }}" alt="logo">{% endif %}
+      <div>
+        <div class="empresa-nombre">{{ empresa.nombre_comercial or empresa.razon_social }}</div>
+        <div class="empresa-ruc">RUC {{ empresa.ruc }} — Transportista</div>
+      </div>
+    </div>
+    <div class="doc-titulo">
+      <div class="badge">GUÍA DE REMISIÓN ELECTRÓNICA</div>
+      <div class="numero">{{ guia.serie }}-{{ guia.numero }}</div>
+    </div>
+  </header>
+
+  <div class="seccion-titulo">Remitente / Destinatario</div>
+  <div class="info-grid">
+    <div class="col">
+      <p class="label">Remitente</p>
+      <p><strong>{{ empresa.razon_social }}</strong> — RUC {{ empresa.ruc }}</p>
+    </div>
+    <div class="col">
+      <p class="label">Destinatario</p>
+      <p><strong>{{ cliente.razon_social }}</strong> — {{ cliente.tipo_documento }} {{ cliente.numero_documento }}</p>
+    </div>
+  </div>
+
+  <div class="seccion-titulo">Traslado</div>
+  <div class="info-grid">
+    <div class="col">
+      <p class="label">Punto de partida</p>
+      <p>{{ viaje.origen if viaje else '—' }}</p>
+    </div>
+    <div class="col">
+      <p class="label">Punto de llegada</p>
+      <p>{{ viaje.destino if viaje else '—' }}</p>
+    </div>
+  </div>
+  <table>
+    <tr>
+      <th>Fecha de emisión</th><th>Motivo de traslado</th><th>Modalidad</th>
+      <th>Peso bruto total</th><th>N.° de bultos</th>
+    </tr>
+    <tr>
+      <td>{{ guia.fecha_emision.strftime('%d/%m/%Y') }}</td>
+      <td>{{ guia.motivo_traslado }}</td>
+      <td>{{ guia.modalidad_transporte.replace('_', ' ') }}</td>
+      <td>{{ "%.2f"|format(guia.peso_bruto_total_kg) }} kg</td>
+      <td>{{ guia.numero_bultos or '—' }}</td>
+    </tr>
+  </table>
+
+  <div class="seccion-titulo">Datos del Transportista</div>
+  <table>
+    <tr><th>Tracto</th><th>Carreta</th><th>Chofer</th><th>Licencia</th></tr>
+    <tr>
+      <td>{{ tracto.placa if tracto else '—' }}{% if tracto %} ({{ tracto.marca }}){% endif %}</td>
+      <td>{{ carreta.placa if carreta else 'No aplica' }}</td>
+      <td>{{ (chofer.nombres + ' ' + chofer.apellidos) if chofer else '—' }}</td>
+      <td>{{ chofer.licencia_numero if chofer else '—' }} ({{ chofer.licencia_categoria if chofer else '' }})</td>
+    </tr>
+  </table>
+
+  {% if viaje and viaje.numero %}<p style="margin-top: 10px;"><strong>Viaje asociado:</strong> {{ viaje.numero }}</p>{% endif %}
+
+  <p style="margin-top: 16px;"><strong>Estado SUNAT:</strong> {{ guia.estado_sunat }}</p>
+
+  <footer>{{ empresa.razon_social }} · RUC {{ empresa.ruc }} · Documento generado por el sistema de gestión Transporte Príncipe</footer>
+</body>
+</html>

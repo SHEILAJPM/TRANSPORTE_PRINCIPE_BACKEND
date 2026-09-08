@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10.5px; color: #1a1a1a; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1a1a1a; padding-bottom: 10px; }
+  header .marca { display: flex; align-items: center; gap: 10px; }
+  header img { max-height: 52px; max-width: 140px; object-fit: contain; }
+  header .empresa-nombre { font-size: 13px; font-weight: bold; }
+  header .empresa-ruc { font-size: 10px; color: #555; }
+
+  .doc-titulo { text-align: center; border: 2px solid #b91c34; border-radius: 4px; padding: 8px 16px; min-width: 210px; }
+  .doc-titulo .badge { font-weight: bold; color: #b91c34; font-size: 11px; line-height: 1.3; }
+  .doc-titulo .numero { font-size: 15px; font-weight: bold; margin-top: 4px; }
+  .doc-titulo .norma { font-size: 8px; color: #777; margin-top: 2px; }
+
+  .seccion-titulo { background: #1a1a1a; color: #fff; font-size: 9.5px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 8px; margin-top: 14px; }
+  .info-grid { display: flex; gap: 16px; margin-top: 8px; }
+  .info-grid .col { flex: 1; }
+  .info-grid p { margin: 2px 0; }
+  .info-grid .label { color: #777; font-size: 9px; text-transform: uppercase; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  td, th { padding: 6px 8px; border: 1px solid #ddd; text-align: center; }
+  th { background: #f4f4f4; font-size: 9px; text-transform: uppercase; color: #555; }
+
+  .pesos { width: 65%; margin-top: 8px; }
+  .pesos td { text-align: left; }
+  .pesos td:last-child { text-align: right; font-weight: bold; }
+  .pesos tr.limite td { color: #b91c34; }
+  .pesos tr.neto td { border-top: 2px solid #1a1a1a; font-size: 12px; }
+
+  .firmas { display: flex; justify-content: space-between; margin-top: 50px; }
+  .firmas .firma { width: 40%; text-align: center; border-top: 1px solid #1a1a1a; padding-top: 4px; font-size: 9.5px; }
+
+  footer { margin-top: 26px; text-align: center; font-size: 8.5px; color: #999; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="marca">
+      {% if empresa.logo_url %}<img src="{{ empresa.logo_url }}" alt="logo">{% endif %}
+      <div>
+        <div class="empresa-nombre">{{ empresa.nombre_comercial or empresa.razon_social }}</div>
+        <div class="empresa-ruc">RUC {{ empresa.ruc }}</div>
+      </div>
+    </div>
+    <div class="doc-titulo">
+      <div class="badge">CONSTANCIA DE VERIFICACIÓN<br>DE PESOS Y MEDIDAS</div>
+      <div class="numero">{{ constancia.numero }}</div>
+      <div class="norma">DS N.° 058-2003-MTC (Anexo IV del RNV)</div>
+    </div>
+  </header>
+
+  <div class="info-grid" style="margin-top: 10px;">
+    <div class="col">
+      <p class="label">Guía de remisión vinculada</p>
+      {% if guia_remision %}<p><strong>{{ guia_remision.serie }}-{{ guia_remision.numero }}</strong></p>{% else %}<p>—</p>{% endif %}
+    </div>
+    <div class="col">
+      <p class="label">Tipo de control</p>
+      <p><strong>{{ constancia.tipo_control }}</strong>{% if constancia.lugar_verificacion %} — {{ constancia.lugar_verificacion }}{% endif %}</p>
+    </div>
+    <div class="col">
+      <p class="label">Fecha y hora de verificación</p>
+      <p><strong>{{ constancia.fecha_verificacion.strftime('%d/%m/%Y %H:%M') }}</strong></p>
+    </div>
+  </div>
+
+  <div class="seccion-titulo">Datos del Vehículo</div>
+  <table>
+    <tr><th>Placa Tracto</th><th>Placa Carreta</th><th>Configuración Vehicular</th><th>Largo (m)</th><th>Ancho (m)</th><th>Alto (m)</th></tr>
+    <tr>
+      <td>{{ tracto_placa or '—' }}</td>
+      <td>{{ carreta_placa or 'No aplica' }}</td>
+      <td>{{ constancia.configuracion_vehicular }}</td>
+      <td>{{ "%.2f"|format(constancia.largo_m) }}</td>
+      <td>{{ "%.2f"|format(constancia.ancho_m) }}</td>
+      <td>{{ "%.2f"|format(constancia.alto_m) }}</td>
+    </tr>
+  </table>
+
+  <div class="seccion-titulo">Resultado de la Verificación en Balanza</div>
+  <table class="pesos">
+    <tr><td>Peso Bruto (vehículo + carga):</td><td>{{ "%.2f"|format(constancia.peso_bruto_kg) }} kg</td></tr>
+    <tr><td>Tara (peso del vehículo vacío):</td><td>{{ "%.2f"|format(constancia.tara_kg) }} kg</td></tr>
+    <tr class="neto"><td>Peso Neto (carga transportada):</td><td>{{ "%.2f"|format(constancia.peso_neto_kg) }} kg</td></tr>
+    <tr class="limite"><td>Peso Bruto Vehicular Máximo Permitido (Anexo IV RNV):</td><td>{{ "%.2f"|format(constancia.peso_bruto_max_kg) }} kg</td></tr>
+  </table>
+  {% if constancia.peso_bruto_kg > constancia.peso_bruto_max_kg %}
+  <p style="color:#b91c34; font-weight:bold; margin-top: 6px;">⚠ El peso bruto verificado excede el máximo permitido para esta configuración vehicular.</p>
+  {% endif %}
+
+  <div class="seccion-titulo">Generador de Carga y Conductor</div>
+  <div class="info-grid">
+    <div class="col">
+      <p class="label">Generador de carga</p>
+      <p><strong>{{ generador_carga or '—' }}</strong></p>
+    </div>
+    <div class="col">
+      <p class="label">Conductor</p>
+      <p><strong>{{ chofer_nombre_completo or '—' }}</strong> — Licencia {{ constancia.numero_licencia_chofer }}</p>
+    </div>
+    <div class="col">
+      <p class="label">Precinto de seguridad</p>
+      <p><strong>{{ constancia.precinto_seguridad or 'No registrado' }}</strong></p>
+    </div>
+  </div>
+
+  {% if constancia.observaciones %}
+  <div class="seccion-titulo">Observaciones</div>
+  <p style="margin-top: 6px;">{{ constancia.observaciones }}</p>
+  {% endif %}
+
+  <div class="firmas">
+    <div class="firma">Responsable de Balanza</div>
+    <div class="firma">Conductor</div>
+  </div>
+
+  <footer>{{ empresa.razon_social }} · RUC {{ empresa.ruc }} · Constancia emitida conforme al DS N.° 058-2003-MTC · Documento generado por el sistema de gestión Transporte Príncipe</footer>
+</body>
+</html>
