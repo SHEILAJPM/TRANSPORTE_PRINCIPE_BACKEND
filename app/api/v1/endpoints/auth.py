@@ -6,40 +6,13 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.security import crear_access_token
 from app.models.usuario import Usuario
-from app.schemas.auth import RegistroEmpresaRequest, TokenResponse
+from app.schemas.auth import TokenResponse
 from app.schemas.usuario import UsuarioResponse
-from app.services.auth_service import (
-    CredencialesInvalidasError,
-    EmailYaRegistradoError,
-    RucYaRegistradoError,
-    autenticar_usuario,
-    registrar_empresa_y_admin,
-)
+from app.services.auth_service import CredencialesInvalidasError, autenticar_usuario
 
+# Sin registro público: es un sistema de una sola empresa. El primer administrador se
+# crea con `python -m app.crear_admin` y él crea los demás usuarios desde /usuarios.
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
-
-
-@router.post("/registro-empresa", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def registrar_empresa(body: RegistroEmpresaRequest, db: AsyncSession = Depends(get_db)):
-    """Alta inicial del sistema: crea la empresa y su primer usuario ADMIN, y lo
-    autentica de inmediato (no requiere token previo)."""
-    try:
-        _, admin = await registrar_empresa_y_admin(
-            db,
-            ruc=body.ruc,
-            razon_social=body.razon_social,
-            admin_nombres=body.admin_nombres,
-            admin_apellidos=body.admin_apellidos,
-            admin_email=body.admin_email,
-            admin_password=body.admin_password,
-        )
-        await db.commit()
-    except (RucYaRegistradoError, EmailYaRegistradoError) as error:
-        await db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
-
-    token = crear_access_token(subject=str(admin.id))
-    return TokenResponse(access_token=token, usuario=UsuarioResponse.model_validate(admin))
 
 
 @router.post("/login", response_model=TokenResponse)

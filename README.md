@@ -172,7 +172,7 @@ Documentación interactiva: `http://localhost:8000/docs`.
 
 | Router | Endpoints | Notas |
 |---|---|---|
-| `auth` | `POST /auth/registro-empresa`, `POST /auth/login`, `GET /auth/me` | El registro crea Empresa + primer Usuario ADMIN y autologuea (único endpoint público). |
+| `auth` | `POST /auth/login`, `GET /auth/me` | Sistema de una sola empresa, **sin registro público**. El primer administrador se crea (o recupera su contraseña) con `python -m app.crear_admin --email ...`; él crea los demás usuarios en `/usuarios` (solo ADMIN). |
 | `usuarios` | CRUD (`POST/GET/PATCH`) | Solo ADMIN; gestiona cuentas de la empresa (incluida la vinculación `chofer_id` para la app del chofer). |
 | `empresa` | `GET/PATCH /empresa`, `POST /empresa/logo` | Datos fiscales + logotipo dinámico (PNG/JPG/WEBP/SVG) vía `StorageService`. |
 | `flota` | CRUD `tractos`/`carretas`, `mantenimientos` anidados, `GET /flota/alertas-vencimiento` | Alertas reutilizan `alertas_service` (SOAT/CITV/MTC/licencia/examen médico). |
