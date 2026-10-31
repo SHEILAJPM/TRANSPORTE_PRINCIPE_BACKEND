@@ -29,6 +29,7 @@
   .totales td { border: none; text-align: right; padding: 3px 8px; }
   .totales tr.total td { border-top: 2px solid #1a1a1a; font-weight: bold; font-size: 12px; color: #b91c34; }
 
+  .detraccion { margin-top: 10px; padding: 6px 8px; border: 1px solid #1a1a1a; border-radius: 4px; font-size: 9.5px; }
   .estado { display: inline-block; margin-top: 10px; padding: 3px 10px; border-radius: 12px; font-size: 9px; font-weight: bold; text-transform: uppercase; }
   .estado.pendiente { background: #fef3c7; color: #92400e; }
   .estado.aceptado { background: #dcfce7; color: #166534; }
@@ -64,6 +65,7 @@
       <p><strong>Fecha de emisión:</strong> {{ factura.fecha_emision.strftime('%d/%m/%Y') }}</p>
       <p><strong>Moneda:</strong> {{ factura.moneda }}</p>
       {% if factura.viaje_numero %}<p><strong>Viaje asociado:</strong> {{ factura.viaje_numero }}</p>{% endif %}
+      {% if factura.guia_remision %}<p><strong>Guía de remisión:</strong> {{ factura.guia_remision }}</p>{% endif %}
     </div>
   </div>
 
@@ -79,7 +81,21 @@
     <tr><td>Subtotal:</td><td>S/ {{ "%.2f"|format(factura.subtotal) }}</td></tr>
     <tr><td>IGV (18%):</td><td>S/ {{ "%.2f"|format(factura.igv) }}</td></tr>
     <tr class="total"><td>TOTAL:</td><td>S/ {{ "%.2f"|format(factura.total) }}</td></tr>
+    {% if factura.detraccion %}
+    <tr><td>Detracción ({{ "%g"|format(factura.detraccion.porcentaje) }}%):</td><td>S/ {{ "%.2f"|format(factura.detraccion.monto) }}</td></tr>
+    <tr><td>Neto a pagar:</td><td>S/ {{ "%.2f"|format(factura.detraccion.neto) }}</td></tr>
+    {% endif %}
   </table>
+
+  {% if factura.detraccion %}
+  <p class="detraccion">
+    <strong>Operación sujeta al Sistema de Pago de Obligaciones Tributarias (SPOT) — D. Leg. N.° 940.</strong>
+    {% if factura.detraccion.cuenta %}
+    Depositar S/ {{ "%.2f"|format(factura.detraccion.monto) }} en la cuenta de detracciones del Banco de la Nación
+    N.° <strong>{{ factura.detraccion.cuenta }}</strong>.
+    {% endif %}
+  </p>
+  {% endif %}
 
   <div class="estado {{ factura.estado_sunat | lower }}">Estado SUNAT: {{ factura.estado_sunat }}</div>
 

@@ -107,8 +107,9 @@ Notas de diseño:
 `convertir_cotizacion_a_viajes(...)` valida que la cotización esté `APROBADA` y no convertida, exige una `AsignacionUnidad` (tracto + chofer + fecha de salida, carreta opcional) por cada camión de `cantidad_camiones`, y en una sola transacción:
 1. Crea el/los `Viaje` copiando cliente, ruta y condiciones desde la cotización (peso e importe se prorratean entre las unidades).
 2. Genera la `GuiaRemision` (numeración por serie SUNAT).
-3. Genera la `Factura` vinculada a esa guía, con el mismo subtotal/IGV/total de la cotización.
-4. Genera la `ConstanciaPesosMedidas` con el snapshot de dimensiones del tracto/carreta y los datos del chofer.
+3. Genera la `ConstanciaPesosMedidas` con el snapshot de dimensiones del tracto/carreta y los datos del chofer.
+
+La Factura/Boleta ya no se genera aquí: se emite al terminar el viaje (sección 3.e), con el precio de la cotización precargado.
 
 Si cualquier paso falla, nada se persiste (rollback del `db.commit()` en el endpoint). Ningún dato se vuelve a digitar: todo viaja por FK o copia puntual desde la cotización.
 
@@ -124,6 +125,33 @@ neto_a_pagar_chofer     = monto_dietas − saldo_rendicion_cuentas
 Donde `total_gastos_operativos` es la suma de `gastos_viaje` de tipo `COMBUSTIBLE + PEAJE + VIATICO + OTRO` (el `ADELANTO` es el efectivo entregado, no un gasto). Si `saldo_rendicion_cuentas` es positivo, el chofer se quedó con efectivo de la empresa y se le descuenta de sus dietas; si es negativo, gastó de su bolsillo y la empresa se lo reembolsa sumándolo a sus dietas. `generar_liquidacion_viaje(...)` calcula `dias_viaje/noches_viaje` automáticamente a partir de `fecha_salida_real`/`fecha_llegada_real` (bloques de 24h) y persiste/actualiza `LiquidacionChofer`.
 
 `reportes_service.calcular_rentabilidad_viaje(...)` cierra el ciclo financiero: `ganancia_neta = ingreso_flete_neto − (total_gastos_operativos + monto_dietas)`.
+
+### d) Guía de Remisión Transportista directa a SUNAT (`GRE_PROVEEDOR=sunat_directo`)
+
+- `gre_ubl_service`: arma el XML UBL 2.1 tipo 31 según el Anexo VII de la R.S. 000123-2022/SUNAT, valida los datos y calcula su **huella**.
+- `sunat_firma_service`: firma XMLDSig enveloped RSA-SHA256 (signxml) dentro de `ext:ExtensionContent`.
+- `sunat_certificado_service`: carga el `.p12` desde `SUNAT_CERT_PATH` / `SUNAT_CERT_PASSWORD`. Si falta o es inválido, el backend arranca igual y las operaciones que firman responden 503 con el motivo. `GET /sunat/certificado/estado` permite verificarlo.
+- `sunat_gre_api_service`: token OAuth2 + envío del ZIP + consulta del ticket en la API REST de GRE.
+- `guia_transportista_service`: orquesta todo. **SUNAT no tiene entorno beta para GRE**: el envío exige la huella de una vista previa (`POST /viajes/{id}/guia-remision/vista-previa`); si algún dato cambió después de revisarla, no se envía. Un ticket "en proceso" nunca se reenvía: se consulta.
+- `guia_remitente_service`: lee el XML de la guía de remitente (tipo 09) del cliente (`POST /sunat/guia-remitente/importar`) y devuelve el viaje prellenado.
+
+El XML firmado y el CDR se guardan en `STORAGE_PRIVADO_LOCAL_PATH` (o en S3 bajo `privado/`), nunca en `/static`, y se descargan por endpoints autenticados.
+
+**Despliegue en Render:** `render.yaml` (Blueprint) crea la API con Docker en la región de Ohio (la misma de Neon, `us-east-2`), aplica `alembic upgrade head` en cada arranque y guarda logos, XML y CDR en un disco persistente en `/var/data` (requiere plan de pago).
+
+**Certificado en Render:** súbelo como *Secret File* (queda en `/etc/secrets/<archivo>.p12`) y define `SUNAT_CERT_PATH=/etc/secrets/<archivo>.p12` y `SUNAT_CERT_PASSWORD` como variables de entorno. El `.p12` nunca va al repositorio (`.gitignore` lo excluye).
+
+Pruebas: `pytest tests/` (no contacta a SUNAT ni necesita base de datos).
+
+### e) Factura/Boleta al terminar el viaje (`facturacion_viaje_service`)
+
+Cuando el viaje está `FINALIZADO` (mercadería descargada) aparece "Emitir factura":
+
+1. `GET /viajes/{id}/comprobante/borrador`: tipo sugerido (RUC → factura, DNI → boleta), precio de la cotización (total por camión, con IGV) y motivos que impiden emitir.
+2. `POST .../comprobante/vista-previa`: el usuario escribe el precio e indica si **incluye IGV** (base = precio / 1.18; IGV = precio − base) o **no** (se suma 18 %), con `ROUND_HALF_UP`. No numera ni envía nada.
+3. `POST .../comprobante/emitir` (exige `huella_vista_previa`): numera, relaciona con la guía (`guia_remision_id`), guarda la base como `ingreso_flete_neto` del viaje, hace commit y recién entonces envía a apisunat.pe. Si el envío falla, el comprobante queda registrado y se reintenta con `POST /viajes/{id}/factura/emitir-sunat`.
+
+Reglas: no hay factura a clientes con DNI; la boleta puede ir "sin documento" (`CLIENTES VARIOS`, Catálogo 06 "0") solo si el total es menor a S/ 700. El receptor y la descripción enviados quedan guardados en la propia factura.
 
 ## 4. Cómo correr el proyecto
 
@@ -150,8 +178,10 @@ Documentación interactiva: `http://localhost:8000/docs`.
 | `flota` | CRUD `tractos`/`carretas`, `mantenimientos` anidados, `GET /flota/alertas-vencimiento` | Alertas reutilizan `alertas_service` (SOAT/CITV/MTC/licencia/examen médico). |
 | `choferes` | CRUD | — |
 | `clientes` | `GET /clientes?q=`, `GET /clientes/{id}` | Búsqueda local (razón social o documento) para no repetir consultas a apisunat.pe si el cliente ya existe. |
-| `cotizaciones` | `POST/GET /cotizaciones`, `GET/PATCH(/estado) /cotizaciones/{id}`, `POST /cotizaciones/{id}/convertir-a-viaje` | `crear_cotizacion` calcula IGV/total; `cambiar_estado_cotizacion` valida transiciones (BORRADOR→ENVIADA→APROBADA/RECHAZADA); solo una cotización `APROBADA` puede convertirse. |
-| `viajes` | `POST /viajes/activar`, `GET /viajes`, `GET/PATCH /viajes/{id}(/estado)`, novedades anidadas | `activar` es la "Activación de Viaje por el Propietario" (módulo 5): emite GRE + Constancia (+ Factura si `CON_RUC`) sin pasar por una cotización, vía `viaje_service.activar_viaje` (mismo patrón que la conversión de 1 clic). |
+| `cotizaciones` | `POST/GET /cotizaciones`, `GET/PATCH(/estado) /cotizaciones/{id}`, `POST /cotizaciones/{id}/convertir-a-viaje` (genera viaje + GRE + constancia, sin factura) | `crear_cotizacion` calcula IGV/total; `cambiar_estado_cotizacion` valida transiciones (BORRADOR→ENVIADA→APROBADA/RECHAZADA); solo una cotización `APROBADA` puede convertirse. |
+| `viajes` | `POST /viajes/activar`, `GET /viajes`, `GET/PATCH /viajes/{id}(/estado)`, novedades anidadas | `activar` es la "Activación de Viaje por el Propietario" (módulo 5): genera GRE + Constancia sin pasar por una cotización, vía `viaje_service.activar_viaje`. La modalidad se deduce del documento del cliente; el comprobante de venta solo se genera si se envía `ingreso_flete_neto`. Acepta destinatario, bienes y la referencia a la guía de remitente del cliente. |
+| `sunat` | `GET /sunat/ruc/{ruc}`, `GET /sunat/dni/{dni}`, `POST /sunat/clientes/autocompletar/...`, `POST /sunat/guia-remitente/importar`, `GET /sunat/certificado/estado` | `importar` lee el XML de la guía de remitente del cliente y devuelve el viaje prellenado (no lo crea). |
+| `comprobantes` | Guía: `GET/PATCH /viajes/{id}/guia-remision`, `POST .../vista-previa`, `POST .../emitir-sunat` (exige `huella_vista_previa`), `POST .../consultar-sunat`, `GET .../xml`, `GET .../cdr`, `GET .../pdf`. Factura/Boleta: `GET .../comprobante/borrador`, `POST .../comprobante/vista-previa`, `POST .../comprobante/emitir`, `GET/POST .../factura(/emitir-sunat, /anular-sunat, /pdf)`. Listados en `/comprobantes/...` | Ver secciones 3.d y 3.e. |
 | `gastos` | `POST/GET /viajes/{id}/gastos` | Idempotente por `uuid_dispositivo` para reintentos de sincronización offline de la app del chofer. |
 | `pesos_medidas` | `GET /pesos-medidas/autocompletar-vehiculo/{placa}`, `POST`, `GET /por-viaje`, `GET /por-guia-remision`, `PATCH` | El autocompletado y la construcción de la Constancia se centralizaron en `pesos_medidas_service.construir_constancia_pesos_medidas`, reutilizada también por `cotizacion_service` y `viaje_service`. |
 | `reportes` | `GET /reportes/viajes` | Buscador avanzado (cliente, placa, ciudad origen/destino, rango de fechas) con ingreso/egresos/ganancia neta calculados en una sola consulta agregada. |

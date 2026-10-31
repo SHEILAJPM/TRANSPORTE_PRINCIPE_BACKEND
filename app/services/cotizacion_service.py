@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chofer import Chofer
 from app.models.cliente import Cliente
-from app.models.comprobante import Factura, GuiaRemision
+from app.models.comprobante import GuiaRemision
 from app.models.cotizacion import CONDICIONES_COMERCIALES_DEFAULT, Cotizacion
 from app.models.enums import (
     EstadoCotizacion,
@@ -14,7 +14,6 @@ from app.models.enums import (
     EstadoViaje,
     ModalidadViaje,
     TipoDocumentoIdentidad,
-    TipoDocumentoVenta,
 )
 from app.models.flota import Carreta, Tracto
 from app.models.pesos_medidas import ConstanciaPesosMedidas
@@ -148,7 +147,6 @@ class AsignacionUnidad:
 class ResultadoConversion:
     viaje: Viaje
     guia_remision: GuiaRemision
-    factura: Factura
     constancia_pesos_medidas: ConstanciaPesosMedidas
 
 
@@ -160,8 +158,6 @@ async def convertir_cotizacion_a_viajes(
     propietario_usuario_id: uuid.UUID,
     modalidad: ModalidadViaje,
     serie_guia_remision: str = "V001",
-    serie_factura: str = "F001",
-    serie_boleta: str = "B001",
 ) -> list[ResultadoConversion]:
     """Botón de Conversión de 1 Clic.
 
@@ -169,8 +165,7 @@ async def convertir_cotizacion_a_viajes(
     ruta, peso, precio, IGV y condiciones comerciales) hacia:
       1) Uno o más Viaje (uno por cada camión de `cantidad_camiones`),
       2) La Guía de Remisión Electrónica de cada viaje,
-      3) La Factura correspondiente,
-      4) La Constancia de Verificación de Pesos y Medidas (DS 058-2003-MTC),
+      3) La Constancia de Verificación de Pesos y Medidas (DS 058-2003-MTC),
     sin que el usuario vuelva a digitar ningún dato ya capturado en la cotización.
     Todo ocurre en una sola transacción: si algo falla, no queda nada a medias.
     """
@@ -197,8 +192,6 @@ async def convertir_cotizacion_a_viajes(
     # El peso y el ingreso cotizados se distribuyen en partes iguales entre las unidades asignadas.
     peso_tm_por_camion = cotizacion.peso_tm / cotizacion.cantidad_camiones
     precio_base_por_camion = cotizacion.precio_base / cotizacion.cantidad_camiones
-    igv_por_camion = cotizacion.monto_igv / cotizacion.cantidad_camiones
-    total_por_camion = cotizacion.precio_total / cotizacion.cantidad_camiones
 
     resultados: list[ResultadoConversion] = []
 
@@ -256,26 +249,6 @@ async def convertir_cotizacion_a_viajes(
         db.add(guia_remision)
         await db.flush()
 
-        es_con_ruc = modalidad == ModalidadViaje.CON_RUC
-        tipo_documento = TipoDocumentoVenta.FACTURA if es_con_ruc else TipoDocumentoVenta.BOLETA
-        serie_documento = serie_factura if es_con_ruc else serie_boleta
-        factura = Factura(
-            empresa_id=empresa_id,
-            viaje_id=viaje.id,
-            cotizacion_id=cotizacion.id,
-            cliente_id=cotizacion.cliente_id,
-            guia_remision_id=guia_remision.id,
-            tipo_documento=tipo_documento,
-            serie=serie_documento,
-            numero=await generar_numero_serie_sunat(db, tipo=tipo_documento.value, serie=serie_documento),
-            fecha_emision=asignacion.fecha_salida_programada.date(),
-            subtotal=precio_base_por_camion,
-            igv=igv_por_camion,
-            total=total_por_camion,
-            estado_sunat=EstadoSunat.PENDIENTE,
-        )
-        db.add(factura)
-
         constancia = await construir_constancia_pesos_medidas(
             db,
             empresa_id=empresa_id,
@@ -293,7 +266,7 @@ async def convertir_cotizacion_a_viajes(
 
         resultados.append(
             ResultadoConversion(
-                viaje=viaje, guia_remision=guia_remision, factura=factura, constancia_pesos_medidas=constancia
+                viaje=viaje, guia_remision=guia_remision, constancia_pesos_medidas=constancia
             )
         )
 

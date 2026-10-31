@@ -32,6 +32,9 @@ async def _empresa_contexto(db: AsyncSession, empresa_id: uuid.UUID) -> dict:
     }
 
 
+_NOMBRE_TIPO_DOCUMENTO = {"6": "RUC", "1": "DNI", "0": "-"}
+
+
 def _cliente_contexto(cliente: Cliente) -> dict:
     return {
         "razon_social": cliente.razon_social,
@@ -84,10 +87,21 @@ async def generar_pdf_factura(db: AsyncSession, factura_id: uuid.UUID) -> bytes:
         raise DocumentoNoEncontradoError("Factura no encontrada")
     cliente = await db.get(Cliente, factura.cliente_id)
     viaje = await db.get(Viaje, factura.viaje_id) if factura.viaje_id else None
+    guia = await db.get(GuiaRemision, factura.guia_remision_id) if factura.guia_remision_id else None
+
+    datos_cliente = _cliente_contexto(cliente)
+    if factura.receptor_numero_documento and factura.receptor_numero_documento != cliente.numero_documento:
+        # Receptor distinto del cliente del viaje (p.ej. boleta a "CLIENTES VARIOS").
+        datos_cliente = {
+            "razon_social": factura.receptor_razon_social,
+            "tipo_documento": _NOMBRE_TIPO_DOCUMENTO.get(factura.receptor_tipo_documento or "", "-"),
+            "numero_documento": factura.receptor_numero_documento,
+            "direccion": None,
+        }
 
     contexto = {
         "empresa": await _empresa_contexto(db, factura.empresa_id),
-        "cliente": _cliente_contexto(cliente),
+        "cliente": datos_cliente,
         "factura": {
             "serie": factura.serie,
             "numero": factura.numero,
@@ -98,7 +112,18 @@ async def generar_pdf_factura(db: AsyncSession, factura_id: uuid.UUID) -> bytes:
             "total": float(factura.total),
             "estado_sunat": factura.estado_sunat.value,
             "viaje_numero": viaje.numero if viaje else None,
-            "descripcion_servicio": "Servicio de transporte de carga por carretera",
+            "descripcion_servicio": factura.descripcion or "Servicio de transporte de carga por carretera",
+            "guia_remision": f"{guia.serie}-{guia.numero}" if guia else None,
+            "detraccion": (
+                {
+                    "porcentaje": float(factura.detraccion_porcentaje or 0),
+                    "monto": float(factura.detraccion_monto),
+                    "cuenta": factura.detraccion_cuenta,
+                    "neto": float(factura.total) - float(factura.detraccion_monto),
+                }
+                if factura.detraccion_monto
+                else None
+            ),
             "titulo_documento": (
                 "FACTURA ELECTRÓNICA" if factura.tipo_documento == TipoDocumentoVenta.FACTURA else "BOLETA DE VENTA ELECTRÓNICA"
             ),

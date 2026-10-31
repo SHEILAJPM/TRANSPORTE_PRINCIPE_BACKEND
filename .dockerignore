@@ -1,0 +1,21 @@
+# Secretos: nunca dentro de la imagen
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.pem
+*.key
+certificados/
+
+# Datos locales y entornos
+storage/
+storage_privado/
+.venv/
+venv/
+.venv_check/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.git/

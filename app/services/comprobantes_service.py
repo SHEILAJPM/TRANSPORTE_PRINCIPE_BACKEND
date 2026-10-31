@@ -119,7 +119,7 @@ async def listar_facturas(
             tipo_documento=factura.tipo_documento,
             serie=factura.serie,
             numero=factura.numero,
-            cliente_razon_social=cliente.razon_social,
+            cliente_razon_social=factura.receptor_razon_social or cliente.razon_social,
             fecha_emision=factura.fecha_emision,
             moneda=factura.moneda,
             total=float(factura.total),

@@ -1,13 +1,32 @@
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.services.sunat_certificado_service import CertificadoSunatError, cargar_certificado
 
-app = FastAPI(title=settings.PROJECT_NAME)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Un certificado faltante o inválido no debe impedir que el backend arranque:
+    # solo se avisa, y las operaciones que firman responden con un error claro.
+    if settings.GRE_PROVEEDOR == "sunat_directo":
+        try:
+            cargar_certificado()
+        except CertificadoSunatError as error:
+            logger.warning("Certificado digital SUNAT no disponible: %s", error)
+    yield
+
+
+app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,6 +37,12 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+
+@app.exception_handler(CertificadoSunatError)
+async def certificado_sunat_error_handler(request: Request, error: CertificadoSunatError):
+    return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"detail": str(error)})
+
 
 if settings.STORAGE_BACKEND == "local":
     # Sirve el logotipo de la empresa y demás adjuntos guardados localmente

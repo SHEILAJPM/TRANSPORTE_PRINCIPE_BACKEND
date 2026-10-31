@@ -1,5 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,8 +29,31 @@ class Settings(BaseSettings):
     DECOLECTA_TOKEN: str
     DECOLECTA_TIMEOUT_SECONDS: int = 10
 
+    # Emisor de la Guía de Remisión Transportista: "apisunat" (vía apisunat.pe) o
+    # "sunat_directo" (XML UBL 2.1 firmado por nosotros y enviado a la API REST de GRE).
+    GRE_PROVEEDOR: Literal["apisunat", "sunat_directo"] = "sunat_directo"
+
+    # Certificado digital .p12 para firmar lo que se envía directo a SUNAT. Nunca va
+    # en el repositorio: en local apunta a una carpeta propia y en Render al Secret
+    # File montado en /etc/secrets/.
+    SUNAT_CERT_PATH: str | None = None
+    SUNAT_CERT_PASSWORD: SecretStr | None = None
+
+    # API REST de GRE de SUNAT. No existe entorno beta para GRE: todo envío es real,
+    # por eso la emisión exige confirmar antes una vista previa.
+    SUNAT_GRE_TOKEN_URL: str = "https://api-seguridad.sunat.gob.pe/v1/clientessol"
+    SUNAT_GRE_API_URL: str = "https://api-cpe.sunat.gob.pe/v1"
+    SUNAT_GRE_CLIENT_ID: str | None = None
+    SUNAT_GRE_CLIENT_SECRET: SecretStr | None = None
+    SUNAT_SOL_USUARIO: str | None = None  # RUC + usuario SOL secundario, p.ej. 20123456789MODDATOS
+    SUNAT_SOL_CLAVE: SecretStr | None = None
+    SUNAT_GRE_TIMEOUT_SECONDS: int = 20
+
     STORAGE_BACKEND: str = "local"
     STORAGE_LOCAL_PATH: str = "./storage"
+    # Archivos que no deben ser públicos (XML firmado y CDR de SUNAT): fuera del
+    # directorio servido en /static. En S3 van al mismo bucket con ACL privada.
+    STORAGE_PRIVADO_LOCAL_PATH: str = "./storage_privado"
     S3_BUCKET_NAME: str | None = None
     S3_REGION: str | None = None
     S3_ACCESS_KEY_ID: str | None = None

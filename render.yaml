@@ -1,0 +1,120 @@
+# Blueprint de Render para el backend de Transporte Príncipe.
+# Render → New → Blueprint → elegir este repositorio. Las variables marcadas con
+# `sync: false` se piden al crear el Blueprint y nunca se guardan en el repositorio.
+#
+# Después de crear el servicio, sube el certificado .p12 como Secret File en
+# Dashboard → transporte-principe-api → Environment → Secret Files. Si lo llamas
+# certificado.p12, queda en /etc/secrets/certificado.p12 (valor de SUNAT_CERT_PATH).
+
+services:
+  - type: web
+    name: transporte-principe-api
+    runtime: docker # usa el Dockerfile (incluye las librerías de WeasyPrint para los PDF)
+    dockerfilePath: ./Dockerfile
+    # Misma región que Neon (us-east-2 = Ohio); no se puede cambiar después de crear el servicio.
+    region: ohio
+    # El disco persistente requiere un plan de pago (starter o superior).
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    # Aplica las migraciones pendientes y arranca la API en el puerto que asigna Render.
+    dockerCommand: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+    disk:
+      # Logos, XML firmados y CDR de SUNAT. El disco del contenedor se borra en cada
+      # deploy; SUNAT exige conservar el XML y el CDR, así que van en disco persistente.
+      name: storage
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+
+      # --- Base de datos (Neon PostgreSQL) ---
+      - key: DATABASE_URL
+        sync: false # postgresql+asyncpg://...
+      - key: DATABASE_URL_SYNC
+        sync: false # postgresql+psycopg2://... (Alembic)
+
+      # --- Seguridad ---
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "480"
+      - key: ALGORITHM
+        value: HS256
+
+      # --- apisunat.pe (facturas, boletas, notas de crédito) ---
+      - key: APISUNAT_BASE_URL
+        value: https://api.apisunat.pe
+      - key: APISUNAT_TOKEN
+        sync: false
+      - key: APISUNAT_TIMEOUT_SECONDS
+        value: "10"
+
+      # --- Decolecta (consulta de RUC/DNI) ---
+      - key: DECOLECTA_BASE_URL
+        value: https://api.decolecta.com
+      - key: DECOLECTA_TOKEN
+        sync: false
+      - key: DECOLECTA_TIMEOUT_SECONDS
+        value: "10"
+
+      # --- Guía de Remisión Transportista directa a SUNAT ---
+      - key: GRE_PROVEEDOR
+        value: sunat_directo
+      - key: SUNAT_CERT_PATH
+        value: /etc/secrets/certificado.p12 # nombre del Secret File que subas
+      - key: SUNAT_CERT_PASSWORD
+        sync: false
+      - key: SUNAT_GRE_TOKEN_URL
+        value: https://api-seguridad.sunat.gob.pe/v1/clientessol
+      - key: SUNAT_GRE_API_URL
+        value: https://api-cpe.sunat.gob.pe/v1
+      - key: SUNAT_GRE_CLIENT_ID
+        sync: false
+      - key: SUNAT_GRE_CLIENT_SECRET
+        sync: false
+      - key: SUNAT_SOL_USUARIO
+        sync: false # RUC + usuario SOL secundario
+      - key: SUNAT_SOL_CLAVE
+        sync: false
+      - key: SUNAT_GRE_TIMEOUT_SECONDS
+        value: "20"
+
+      # --- Almacenamiento (en el disco persistente) ---
+      - key: STORAGE_BACKEND
+        value: local
+      - key: STORAGE_LOCAL_PATH
+        value: /var/data/storage
+      - key: STORAGE_PRIVADO_LOCAL_PATH
+        value: /var/data/storage_privado
+
+      # --- Alertas de vencimiento ---
+      - key: ALERTA_DIAS_ANTICIPACION_SOAT
+        value: "30"
+      - key: ALERTA_DIAS_ANTICIPACION_CITV
+        value: "30"
+      - key: ALERTA_DIAS_ANTICIPACION_MTC
+        value: "30"
+      - key: ALERTA_DIAS_ANTICIPACION_LICENCIA
+        value: "30"
+
+# Alertas automáticas (Celery). Opcional y con costo adicional: descomenta este bloque
+# y agrega a la API las variables REDIS_URL, CELERY_BROKER_URL y CELERY_RESULT_BACKEND
+# con `fromService` apuntando a transporte-principe-redis.
+#
+#  - type: worker
+#    name: transporte-principe-celery
+#    runtime: docker
+#    dockerfilePath: ./Dockerfile
+#    region: ohio
+#    plan: starter
+#    dockerCommand: celery -A app.tasks.celery_app worker --beat --loglevel=info
+#    envVars:
+#      - fromGroup: ...   # mismas variables que la API
+#
+#  - type: keyvalue
+#    name: transporte-principe-redis
+#    region: ohio
+#    plan: starter
+#    ipAllowList: []

@@ -65,6 +65,13 @@ class TipoDocumentoVenta(str, enum.Enum):
     NOTA_CREDITO = "NOTA_CREDITO"
 
 
+class ReceptorComprobante(str, enum.Enum):
+    """A quién se emite la Factura/Boleta del viaje."""
+
+    CLIENTE = "CLIENTE"
+    SIN_DOCUMENTO = "SIN_DOCUMENTO"  # "CLIENTES VARIOS": solo boleta y total menor a S/ 700
+
+
 class EstadoSunat(str, enum.Enum):
     PENDIENTE = "PENDIENTE"
     ACEPTADO = "ACEPTADO"

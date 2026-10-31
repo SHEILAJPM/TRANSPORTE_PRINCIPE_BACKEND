@@ -176,7 +176,6 @@ async def convertir_cotizacion(
         ResultadoConversionResponse(
             viaje=DocumentoGeneradoResponse(id=r.viaje.id, numero=r.viaje.numero),
             guia_remision=DocumentoGeneradoResponse(id=r.guia_remision.id, numero=r.guia_remision.numero),
-            factura=DocumentoGeneradoResponse(id=r.factura.id, numero=r.factura.numero),
             constancia_pesos_medidas=DocumentoGeneradoResponse(
                 id=r.constancia_pesos_medidas.id, numero=r.constancia_pesos_medidas.numero
             ),

@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -11,12 +10,14 @@ from app.core.config import settings
 from app.models.chofer import Chofer
 from app.models.cliente import Cliente
 from app.models.comprobante import Factura, GuiaRemision
+from app.models.cotizacion import Cotizacion
 from app.models.empresa import Empresa
 from app.models.enums import EstadoSunat, TipoDocumentoIdentidad, TipoDocumentoVenta
 from app.models.flota import Carreta, Tracto
 from app.models.pesos_medidas import ConstanciaPesosMedidas
 from app.models.viaje import Viaje
 from app.utils.correlativos import generar_numero_serie_sunat
+from app.utils.fechas import ahora_peru
 
 _CODIGO_TIPO_DOCUMENTO = {
     TipoDocumentoIdentidad.DNI: "1",
@@ -91,12 +92,13 @@ class _ClienteApiSunatFacturacion:
             raise ApiSunatFacturacionError(f"Respuesta inesperada de apisunat.pe (HTTP {response.status_code})") from error
 
 
-def _construir_items(viaje: Viaje) -> list[dict[str, Any]]:
-    descripcion = (
-        viaje.cotizacion.descripcion_servicio
-        if viaje.cotizacion is not None
-        else f"Transporte de carga general — {viaje.peso_tm} TM"
-    )
+async def _descripcion_servicio(db: AsyncSession, viaje: Viaje | None, por_defecto: str) -> str:
+    cotizacion = await db.get(Cotizacion, viaje.cotizacion_id) if viaje is not None and viaje.cotizacion_id else None
+    return cotizacion.descripcion_servicio if cotizacion is not None else por_defecto
+
+
+async def _construir_items(db: AsyncSession, viaje: Viaje) -> list[dict[str, Any]]:
+    descripcion = await _descripcion_servicio(db, viaje, f"Transporte de carga general — {viaje.peso_tm} TM")
     return [
         {
             "codigo": "CARGA",
@@ -139,7 +141,7 @@ async def construir_payload_guia_remision_transportista(
     # SUNAT exige que fecha_de_emision sea el día real de la presentación (hoy), no la
     # fecha en que se generó el registro interno (que puede ser una salida programada
     # a futuro, o un envío tardío de un viaje ya activado hace días).
-    ahora = datetime.now(timezone.utc)
+    ahora = ahora_peru()
     fecha_emision = ahora.date().isoformat()
     hora_emision = ahora.strftime("%H:%M:%S")
 
@@ -175,12 +177,21 @@ async def construir_payload_guia_remision_transportista(
         "punto_de_partida_direccion": viaje.origen_direccion,
         "punto_de_llegada_ubigeo": viaje.destino_ubigeo,
         "punto_de_llegada_direccion": viaje.destino_direccion,
-        "destinatario": {
-            "tipo_de_documento": _CODIGO_TIPO_DOCUMENTO[cliente.tipo_documento],
-            "numero_de_documento": cliente.numero_documento,
-            "denominacion": cliente.razon_social,
-            "direccion": cliente.direccion or viaje.destino_direccion,
-        },
+        "destinatario": (
+            {
+                "tipo_de_documento": guia.destinatario_tipo_documento,
+                "numero_de_documento": guia.destinatario_numero_documento,
+                "denominacion": guia.destinatario_razon_social,
+                "direccion": viaje.destino_direccion,
+            }
+            if guia.destinatario_numero_documento and guia.destinatario_tipo_documento and guia.destinatario_razon_social
+            else {
+                "tipo_de_documento": _CODIGO_TIPO_DOCUMENTO[cliente.tipo_documento],
+                "numero_de_documento": cliente.numero_documento,
+                "denominacion": cliente.razon_social,
+                "direccion": cliente.direccion or viaje.destino_direccion,
+            }
+        ),
         "remitente": {
             "tipo_de_documento": _CODIGO_TIPO_DOCUMENTO[remitente.tipo_documento],
             "numero_de_documento": remitente.numero_documento,
@@ -197,7 +208,19 @@ async def construir_payload_guia_remision_transportista(
             }
         ],
         "vehiculos": vehiculos,
-        "items": _construir_items(viaje),
+        "items": (
+            [
+                {
+                    "codigo": b.get("codigo") or "CARGA",
+                    "descripcion": b["descripcion"][:250],
+                    "cantidad": str(b.get("cantidad") or 1),
+                    "unidad_de_medida": b.get("unidad") or "NIU",
+                }
+                for b in guia.bienes
+            ]
+            if guia.bienes
+            else await _construir_items(db, viaje)
+        ),
     }
 
     # Si el cliente ya generó su propia Guía de Remisión Remitente en SUNAT, se
@@ -245,12 +268,32 @@ async def emitir_guia_remision_transportista(db: AsyncSession, guia_remision_id:
         guia.pdf_url = pdf.get("a4")
         # Refleja la fecha real de presentación a SUNAT (payload["fecha_de_emision"]),
         # que puede diferir de la fecha con la que se creó el registro interno.
-        guia.fecha_emision = datetime.now(timezone.utc).date()
+        guia.fecha_emision = ahora_peru().date()
     else:
         guia.estado_sunat = EstadoSunat.RECHAZADO
 
     await db.flush()
     return guia
+
+
+def _receptor(factura: Factura, cliente: Cliente) -> dict[str, str]:
+    """Receptor tal como se confirmó al emitir (puede ser "CLIENTES VARIOS" en una
+    boleta sin documento); los comprobantes antiguos sin snapshot usan el cliente."""
+    if factura.receptor_numero_documento and factura.receptor_tipo_documento and factura.receptor_razon_social:
+        return {
+            "cliente_tipo_de_documento": factura.receptor_tipo_documento,
+            "cliente_numero_de_documento": factura.receptor_numero_documento,
+            "cliente_denominacion": factura.receptor_razon_social,
+            "cliente_direccion": (
+                (cliente.direccion or "") if factura.receptor_numero_documento == cliente.numero_documento else ""
+            ),
+        }
+    return {
+        "cliente_tipo_de_documento": _CODIGO_TIPO_DOCUMENTO[cliente.tipo_documento],
+        "cliente_numero_de_documento": cliente.numero_documento,
+        "cliente_denominacion": cliente.razon_social,
+        "cliente_direccion": cliente.direccion or "",
+    }
 
 
 async def construir_payload_factura(db: AsyncSession, factura: Factura) -> dict[str, Any]:
@@ -259,13 +302,11 @@ async def construir_payload_factura(db: AsyncSession, factura: Factura) -> dict[
         raise DatosIncompletosError("El cliente de esta factura no existe")
 
     viaje = await db.get(Viaje, factura.viaje_id) if factura.viaje_id else None
-    descripcion = (
-        viaje.cotizacion.descripcion_servicio
-        if viaje is not None and viaje.cotizacion is not None
-        else "Servicio de transporte de carga por carretera"
+    descripcion = factura.descripcion or await _descripcion_servicio(
+        db, viaje, "Servicio de transporte de carga por carretera"
     )
 
-    fecha_emision = datetime.now(timezone.utc).date().isoformat()
+    fecha_emision = ahora_peru().date().isoformat()
     subtotal = float(factura.subtotal)
     igv = float(factura.igv)
     total = float(factura.total)
@@ -285,10 +326,7 @@ async def construir_payload_factura(db: AsyncSession, factura: Factura) -> dict[
         "fecha_de_vencimiento": fecha_emision,
         "moneda": factura.moneda,
         "tipo_operacion": "0101",
-        "cliente_tipo_de_documento": _CODIGO_TIPO_DOCUMENTO[cliente.tipo_documento],
-        "cliente_numero_de_documento": cliente.numero_documento,
-        "cliente_denominacion": cliente.razon_social,
-        "cliente_direccion": cliente.direccion or "",
+        **_receptor(factura, cliente),
         "gravadas": f"{subtotal:.2f}" if afecto else "0.00",
         "exoneradas": "0.00" if afecto else f"{subtotal:.2f}",
         "igv": f"{igv:.2f}",
@@ -318,6 +356,7 @@ async def emitir_factura(db: AsyncSession, factura_id: uuid.UUID) -> Factura:
         raise DatosIncompletosError("Factura no encontrada")
 
     payload = await construir_payload_factura(db, factura)
+    factura.enviado_en = factura.enviado_en or ahora_peru()
 
     cliente_api = _ClienteApiSunatFacturacion()
     try:
@@ -336,7 +375,7 @@ async def emitir_factura(db: AsyncSession, factura_id: uuid.UUID) -> Factura:
         factura.cdr_url = datos.get("cdr") or None
         pdf = datos.get("pdf") or {}
         factura.pdf_url = pdf.get("a4")
-        factura.fecha_emision = datetime.now(timezone.utc).date()
+        factura.fecha_emision = ahora_peru().date()
     else:
         factura.estado_sunat = EstadoSunat.RECHAZADO
 
@@ -365,10 +404,8 @@ async def _construir_payload_nota_credito(
     db: AsyncSession, factura: Factura, cliente: Cliente, serie_nota: str, numero_nota: str, motivo: str
 ) -> dict[str, Any]:
     viaje = await db.get(Viaje, factura.viaje_id) if factura.viaje_id else None
-    descripcion = (
-        viaje.cotizacion.descripcion_servicio
-        if viaje is not None and viaje.cotizacion is not None
-        else "Servicio de transporte de carga por carretera"
+    descripcion = factura.descripcion or await _descripcion_servicio(
+        db, viaje, "Servicio de transporte de carga por carretera"
     )
     subtotal = float(factura.subtotal)
     igv = float(factura.igv)
@@ -381,12 +418,9 @@ async def _construir_payload_nota_credito(
         "documento": "nota_credito",
         "serie": serie_nota,
         "numero": numero_nota,
-        "fecha_de_emision": datetime.now(timezone.utc).date().isoformat(),
+        "fecha_de_emision": ahora_peru().date().isoformat(),
         "moneda": factura.moneda,
-        "cliente_tipo_de_documento": _CODIGO_TIPO_DOCUMENTO[cliente.tipo_documento],
-        "cliente_numero_de_documento": cliente.numero_documento,
-        "cliente_denominacion": cliente.razon_social,
-        "cliente_direccion": cliente.direccion or "",
+        **_receptor(factura, cliente),
         "nota_credito_codigo_tipo": "01",  # Catálogo 09 SUNAT: "01" = Anulación de la operación
         "nota_credito_motivo": motivo,
         "documento_afectado": {"documento": documento_afectado, "serie": factura.serie, "numero": factura.numero},
@@ -423,7 +457,7 @@ async def anular_comprobante(db: AsyncSession, factura_id: uuid.UUID, motivo: st
         raise ComprobanteNoAceptadoError("Solo se puede anular un comprobante que ya fue aceptado por SUNAT")
 
     motivo_final = motivo or "ANULACION DE OPERACION"
-    dias_desde_emision = (datetime.now(timezone.utc).date() - factura.fecha_emision).days
+    dias_desde_emision = (ahora_peru().date() - factura.fecha_emision).days
     plazo_directo = _PLAZO_ANULACION_DIRECTA_DIAS[factura.tipo_documento]
 
     cliente_api = _ClienteApiSunatFacturacion()
@@ -462,11 +496,16 @@ async def anular_comprobante(db: AsyncSession, factura_id: uuid.UUID, motivo: st
         tipo_documento=TipoDocumentoVenta.NOTA_CREDITO,
         serie=serie_nota,
         numero=numero_nota,
-        fecha_emision=datetime.now(timezone.utc).date(),
+        fecha_emision=ahora_peru().date(),
         moneda=factura.moneda,
         subtotal=factura.subtotal,
         igv=factura.igv,
         total=factura.total,
+        precio_incluye_igv=factura.precio_incluye_igv,
+        receptor_tipo_documento=factura.receptor_tipo_documento,
+        receptor_numero_documento=factura.receptor_numero_documento,
+        receptor_razon_social=factura.receptor_razon_social,
+        descripcion=factura.descripcion,
         estado_sunat=EstadoSunat.PENDIENTE,
         mensaje_sunat=resultado.get("message"),
     )

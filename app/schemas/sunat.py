@@ -1,4 +1,9 @@
+from datetime import date, datetime
+
 from pydantic import BaseModel
+
+from app.schemas.cliente import ClienteResponse
+from app.schemas.comprobante import BienGuia
 
 
 class RucConsultaResponse(BaseModel):
@@ -23,3 +28,44 @@ class DniConsultaResponse(BaseModel):
     @property
     def nombre_completo(self) -> str:
         return f"{self.nombres} {self.apellido_paterno} {self.apellido_materno}".strip()
+
+
+class ParteGuia(BaseModel):
+    tipo_documento: str  # Catálogo 06: "6" RUC, "1" DNI
+    numero_documento: str
+    razon_social: str
+
+
+class PuntoGuia(BaseModel):
+    ubigeo: str | None
+    direccion: str | None
+
+
+class GuiaRemitenteImportadaResponse(BaseModel):
+    """Borrador del viaje armado desde la guía de remitente del cliente. No crea el
+    viaje: el frontend lo completa con tracto y chofer y lo envía a /viajes/activar."""
+
+    cliente: ClienteResponse
+    remitente_guia_ruc_emisor: str
+    remitente_guia_serie: str
+    remitente_guia_numero: str
+    fecha_emision_guia: date | None
+    destinatario: ParteGuia | None
+    origen: PuntoGuia
+    destino: PuntoGuia
+    peso_tm: float | None
+    numero_bultos: int | None
+    fecha_inicio_traslado: date | None
+    motivo_traslado: str | None
+    bienes: list[BienGuia]
+    advertencias: list[str]
+
+
+class CertificadoEstadoResponse(BaseModel):
+    """Estado del certificado digital .p12 (nunca expone la clave ni la contraseña)."""
+
+    listo_para_firmar: bool
+    mensaje: str
+    titular: str | None = None
+    vence_en: datetime | None = None
+    dias_para_vencer: int | None = None

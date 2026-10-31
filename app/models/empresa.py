@@ -32,6 +32,10 @@ class Empresa(Base, UUIDPKMixin, TimestampMixin):
     # MTC (se envía en cada Guía de Remisión Transportista a apisunat.pe/SUNAT).
     numero_registro_mtc: Mapped[str | None] = mapped_column(String(30))
 
+    # Cuenta de detracciones (SPOT) en el Banco de la Nación: se imprime en cada factura
+    # sujeta a detracción para que el cliente sepa dónde depositar.
+    cuenta_detracciones: Mapped[str | None] = mapped_column(String(20))
+
     # Token bearer de apisunat.pe asociado a esta empresa (se recomienda cifrar en reposo).
     apisunat_token: Mapped[str | None] = mapped_column(String(500))
 

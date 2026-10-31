@@ -88,5 +88,4 @@ class DocumentoGeneradoResponse(BaseModel):
 class ResultadoConversionResponse(BaseModel):
     viaje: DocumentoGeneradoResponse
     guia_remision: DocumentoGeneradoResponse
-    factura: DocumentoGeneradoResponse
     constancia_pesos_medidas: DocumentoGeneradoResponse

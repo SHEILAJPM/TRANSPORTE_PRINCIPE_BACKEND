@@ -50,15 +50,16 @@ async def activar(
     usuario_actual: Usuario = Depends(require_roles(*_ROLES_ESCRITURA)),
 ):
     """Activación de Viaje por el Propietario: asigna tracto, carreta, chofer y
-    cliente, y emite de inmediato la Guía de Remisión y la Constancia de Pesos y
-    Medidas (más la Factura si la modalidad es CON_RUC)."""
+    cliente, y genera la Guía de Remisión y la Constancia de Pesos y Medidas. La
+    Factura/Boleta se emite al terminar el viaje (POST /viajes/{id}/comprobante/...)."""
     try:
         resultado = await activar_viaje(
             db,
             ActivacionViaje(
                 empresa_id=usuario_actual.empresa_id,
                 propietario_usuario_id=usuario_actual.id,
-                **body.model_dump(),
+                **body.model_dump(exclude={"bienes"}),
+                bienes=[b.model_dump() for b in body.bienes] if body.bienes else None,
             ),
         )
         await db.commit()
@@ -72,11 +73,6 @@ async def activar(
     return ResultadoActivacionResponse(
         viaje=DocumentoGeneradoResponse(id=resultado.viaje.id, numero=resultado.viaje.numero),
         guia_remision=DocumentoGeneradoResponse(id=resultado.guia_remision.id, numero=resultado.guia_remision.numero),
-        factura=(
-            DocumentoGeneradoResponse(id=resultado.factura.id, numero=resultado.factura.numero)
-            if resultado.factura
-            else None
-        ),
         constancia_pesos_medidas=DocumentoGeneradoResponse(
             id=resultado.constancia_pesos_medidas.id, numero=resultado.constancia_pesos_medidas.numero
         ),
