@@ -24,6 +24,7 @@ from pydantic import SecretStr
 from signxml import XMLVerifier
 
 from app.core.config import settings
+from app.models.archivo_privado import ArchivoPrivado
 from app.models.chofer import Chofer
 from app.models.cliente import Cliente
 from app.models.comprobante import GuiaRemision
@@ -235,6 +236,11 @@ class _SesionFalsa:
     def __init__(self, objetos):
         self._objetos = objetos
         self.flushes = 0
+        self.archivos: dict[str, bytes] = {}  # archivos_privados guardados (clave -> contenido)
+
+    def add(self, objeto):
+        if isinstance(objeto, ArchivoPrivado):
+            self.archivos[objeto.clave] = objeto.contenido
 
     async def get(self, modelo, ident, with_for_update=False):
         return self._objetos.get((modelo, ident))
@@ -295,8 +301,6 @@ def sunat_simulada(monkeypatch, tmp_path, certificado):
     monkeypatch.setattr(settings, "SUNAT_GRE_CLIENT_SECRET", SecretStr("secreto"))
     monkeypatch.setattr(settings, "SUNAT_SOL_USUARIO", f"{RUC_EMPRESA}MODDATOS")
     monkeypatch.setattr(settings, "SUNAT_SOL_CLAVE", SecretStr("clave"))
-    monkeypatch.setattr(settings, "STORAGE_BACKEND", "local")
-    monkeypatch.setattr(settings, "STORAGE_PRIVADO_LOCAL_PATH", str(tmp_path))
     monkeypatch.setattr(servicio, "cargar_certificado", lambda: certificado)
     monkeypatch.setattr(servicio, "_ESPERA_ENTRE_CONSULTAS_SEGUNDOS", 0)
     api._tokens.clear()
@@ -319,7 +323,7 @@ def sunat_simulada(monkeypatch, tmp_path, certificado):
     return peticiones, respuestas
 
 
-def test_emision_completa_aceptada(sunat_simulada, tmp_path):
+def test_emision_completa_aceptada(sunat_simulada):
     peticiones, _ = sunat_simulada
     db, guia = _escenario()
 
@@ -333,7 +337,9 @@ def test_emision_completa_aceptada(sunat_simulada, tmp_path):
     assert guia.sunat_ticket == "TICKET-1" and guia.hash_cpe
     assert "aceptada" in guia.mensaje_sunat
     assert guia.pdf_url.startswith("https://e-factura.sunat.gob.pe")
-    assert (tmp_path / guia.xml_clave).is_file() and (tmp_path / guia.cdr_clave).is_file()
+    # El XML firmado y el CDR quedan en la base de datos (no en el disco del servidor).
+    assert db.archivos[guia.xml_clave].startswith(b"<?xml")
+    assert zipfile.is_zipfile(io.BytesIO(db.archivos[guia.cdr_clave]))
 
     token, envio, ticket = peticiones
     assert token.url.path == "/v1/clientessol/cliente-prueba/oauth2/token/"

@@ -51,9 +51,6 @@ class Settings(BaseSettings):
 
     STORAGE_BACKEND: str = "local"
     STORAGE_LOCAL_PATH: str = "./storage"
-    # Archivos que no deben ser públicos (XML firmado y CDR de SUNAT): fuera del
-    # directorio servido en /static. En S3 van al mismo bucket con ACL privada.
-    STORAGE_PRIVADO_LOCAL_PATH: str = "./storage_privado"
     S3_BUCKET_NAME: str | None = None
     S3_REGION: str | None = None
     S3_ACCESS_KEY_ID: str | None = None

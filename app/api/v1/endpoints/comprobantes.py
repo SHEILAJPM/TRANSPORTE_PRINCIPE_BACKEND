@@ -26,7 +26,7 @@ from app.schemas.comprobante import (
     GuiaRemisionResponse,
     GuiaVistaPreviaResponse,
 )
-from app.services import facturacion_viaje_service, guia_transportista_service
+from app.services import archivos_privados_service, facturacion_viaje_service, guia_transportista_service
 from app.services.apisunat_facturacion_service import (
     AnulacionNoSoportadaError,
     ApiSunatFacturacionError,
@@ -36,7 +36,7 @@ from app.services.apisunat_facturacion_service import (
     emitir_factura,
 )
 from app.services.guia_transportista_service import GuiaNoEmitibleError, HuellaNoCoincideError
-from app.services.storage_service import ArchivoPrivadoNoEncontradoError, StorageService
+from app.services.archivos_privados_service import ArchivoPrivadoNoEncontradoError
 from app.services.sunat_gre_api_service import SunatGreError
 from app.services.comprobantes_service import listar_facturas, listar_guias_remision
 from app.services.documentos_pdf_service import (
@@ -362,9 +362,9 @@ async def descargar_guia_remision_xml(
     if not guia.xml_clave:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Esta guía no tiene XML firmado guardado")
     try:
-        contenido = StorageService().leer_privado(guia.xml_clave)
+        contenido = await archivos_privados_service.leer(db, guia.xml_clave)
     except ArchivoPrivadoNoEncontradoError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el XML firmado en el almacenamiento")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el XML firmado guardado")
     nombre = guia.xml_clave.rsplit("/", 1)[-1]
     return Response(
         content=contenido, media_type="application/xml", headers={"Content-Disposition": f'attachment; filename="{nombre}"'}
@@ -380,9 +380,9 @@ async def descargar_guia_remision_cdr(
     if not guia.cdr_clave:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Esta guía todavía no tiene CDR de SUNAT")
     try:
-        contenido = StorageService().leer_privado(guia.cdr_clave)
+        contenido = await archivos_privados_service.leer(db, guia.cdr_clave)
     except ArchivoPrivadoNoEncontradoError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el CDR en el almacenamiento")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el CDR guardado")
     nombre = guia.cdr_clave.rsplit("/", 1)[-1]
     return Response(
         content=contenido, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{nombre}"'}

@@ -15,18 +15,13 @@ services:
     dockerfilePath: ./Dockerfile
     # Misma región que Neon (us-east-2 = Ohio); no se puede cambiar después de crear el servicio.
     region: ohio
-    # El disco persistente requiere un plan de pago (starter o superior).
-    plan: starter
+    # Plan gratuito: se suspende sin uso (la primera petición tarda ~1 min). El XML y
+    # el CDR de SUNAT se guardan en la base de datos, así que no hace falta disco.
+    plan: free
     healthCheckPath: /health
     autoDeploy: true
-    # Aplica las migraciones pendientes y arranca la API en el puerto que asigna Render.
-    dockerCommand: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
-    disk:
-      # Logos, XML firmados y CDR de SUNAT. El disco del contenedor se borra en cada
-      # deploy; SUNAT exige conservar el XML y el CDR, así que van en disco persistente.
-      name: storage
-      mountPath: /var/data
-      sizeGB: 1
+    # Sin dockerCommand: el CMD del Dockerfile aplica las migraciones y arranca la API
+    # en el puerto que asigna Render.
     envVars:
       - key: ENVIRONMENT
         value: production
@@ -83,13 +78,12 @@ services:
       - key: SUNAT_GRE_TIMEOUT_SECONDS
         value: "20"
 
-      # --- Almacenamiento (en el disco persistente) ---
+      # --- Almacenamiento del logo (en el plan gratuito se borra en cada despliegue:
+      # volver a subir el logo si desaparece) ---
       - key: STORAGE_BACKEND
         value: local
       - key: STORAGE_LOCAL_PATH
-        value: /var/data/storage
-      - key: STORAGE_PRIVADO_LOCAL_PATH
-        value: /var/data/storage_privado
+        value: ./storage
 
       # --- Alertas de vencimiento ---
       - key: ALERTA_DIAS_ANTICIPACION_SOAT

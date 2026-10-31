@@ -135,7 +135,7 @@ Donde `total_gastos_operativos` es la suma de `gastos_viaje` de tipo `COMBUSTIBL
 - `guia_transportista_service`: orquesta todo. **SUNAT no tiene entorno beta para GRE**: el envío exige la huella de una vista previa (`POST /viajes/{id}/guia-remision/vista-previa`); si algún dato cambió después de revisarla, no se envía. Un ticket "en proceso" nunca se reenvía: se consulta.
 - `guia_remitente_service`: lee el XML de la guía de remitente (tipo 09) del cliente (`POST /sunat/guia-remitente/importar`) y devuelve el viaje prellenado.
 
-El XML firmado y el CDR se guardan en `STORAGE_PRIVADO_LOCAL_PATH` (o en S3 bajo `privado/`), nunca en `/static`, y se descargan por endpoints autenticados.
+El XML firmado y el CDR se guardan en la base de datos (tabla `archivos_privados`), no en el disco: en el plan gratuito de Render el disco se borra en cada despliegue y SUNAT exige conservarlos. Se descargan solo por endpoints autenticados.
 
 **Despliegue en Render:** `render.yaml` (Blueprint) crea la API con Docker en la región de Ohio (la misma de Neon, `us-east-2`), aplica `alembic upgrade head` en cada arranque y guarda logos, XML y CDR en un disco persistente en `/var/data` (requiere plan de pago).
 

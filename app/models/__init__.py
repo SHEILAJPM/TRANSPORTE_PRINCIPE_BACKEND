@@ -1,3 +1,4 @@
+from app.models.archivo_privado import ArchivoPrivado
 from app.models.base import Base
 from app.models.chofer import Chofer
 from app.models.cliente import Cliente
@@ -36,4 +37,5 @@ __all__ = [
     "NovedadViaje",
     "LiquidacionChofer",
     "ConsultaSunatLog",
+    "ArchivoPrivado",
 ]

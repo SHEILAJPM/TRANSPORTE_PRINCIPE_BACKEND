@@ -30,7 +30,7 @@ from app.models.pesos_medidas import ConstanciaPesosMedidas
 from app.models.viaje import Viaje
 from app.services import gre_ubl_service as ubl
 from app.services.apisunat_facturacion_service import DatosIncompletosError, emitir_guia_remision_transportista
-from app.services.storage_service import StorageService
+from app.services import archivos_privados_service
 from app.services.sunat_certificado_service import CertificadoSunatError, cargar_certificado
 from app.services.sunat_firma_service import firmar_xml
 from app.services.sunat_gre_api_service import (
@@ -216,15 +216,15 @@ def _leer_cdr(cdr_zip: bytes) -> tuple[str | None, str | None, str | None]:
     return codigo, mensaje or None, enlace
 
 
-def _aplicar_respuesta_ticket(guia: GuiaRemision, respuesta: RespuestaTicket, storage: StorageService) -> None:
+async def _aplicar_respuesta_ticket(db: AsyncSession, guia: GuiaRemision, respuesta: RespuestaTicket) -> None:
     if respuesta.codigo == CODIGO_TICKET_EN_PROCESO:
         guia.estado_sunat = EstadoSunat.PENDIENTE
         guia.mensaje_sunat = f"SUNAT está procesando la guía (ticket {guia.sunat_ticket})"
         return
 
     if respuesta.cdr_zip:
-        guia.cdr_clave = storage.guardar_privado(
-            f"sunat/gre/{guia.serie}-{guia.numero}/R-{guia.serie}-{guia.numero}.zip", respuesta.cdr_zip, "application/zip"
+        guia.cdr_clave = await archivos_privados_service.guardar(
+            db, f"sunat/gre/{guia.serie}-{guia.numero}/R-{guia.serie}-{guia.numero}.zip", respuesta.cdr_zip, "application/zip"
         )
         codigo_cdr, mensaje_cdr, enlace = _leer_cdr(respuesta.cdr_zip)
         guia.sunat_codigo_respuesta = codigo_cdr
@@ -271,9 +271,8 @@ async def emitir(db: AsyncSession, guia_remision_id: uuid.UUID, huella_confirmad
         raiz = ubl.construir_xml(datos, emitido_en)
         firmado = await asyncio.to_thread(firmar_xml, raiz, certificado, ubl.ID_FIRMA)
 
-        storage = StorageService()
-        guia.xml_clave = storage.guardar_privado(
-            f"sunat/gre/{guia.serie}-{guia.numero}/{datos.nombre_archivo}.xml", firmado.contenido, "application/xml"
+        guia.xml_clave = await archivos_privados_service.guardar(
+            db, f"sunat/gre/{guia.serie}-{guia.numero}/{datos.nombre_archivo}.xml", firmado.contenido, "application/xml"
         )
         ticket = await cliente_api.enviar(datos.nombre_archivo, empaquetar_zip(datos.nombre_archivo, firmado.contenido))
 
@@ -292,7 +291,7 @@ async def emitir(db: AsyncSession, guia_remision_id: uuid.UUID, huella_confirmad
             await asyncio.sleep(_ESPERA_ENTRE_CONSULTAS_SEGUNDOS)
             try:
                 respuesta = await cliente_api.consultar_ticket(ticket)
-                _aplicar_respuesta_ticket(guia, respuesta, storage)
+                await _aplicar_respuesta_ticket(db, guia, respuesta)
             except Exception:
                 # Queda PENDIENTE con su ticket guardado; el usuario consulta el estado luego.
                 logger.exception("No se pudo obtener la respuesta del ticket %s de SUNAT", ticket)
@@ -320,6 +319,6 @@ async def consultar_ticket(db: AsyncSession, guia_remision_id: uuid.UUID) -> Gui
         respuesta = await cliente_api.consultar_ticket(guia.sunat_ticket)
     finally:
         await cliente_api.cerrar()
-    _aplicar_respuesta_ticket(guia, respuesta, StorageService())
+    await _aplicar_respuesta_ticket(db, guia, respuesta)
     await db.flush()
     return guia
