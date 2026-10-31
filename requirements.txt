@@ -7,8 +7,9 @@ alembic==1.13.2
 pydantic==2.9.2
 pydantic-settings==2.5.2
 python-jose[cryptography]==3.3.0
-# Lectura del certificado .p12 de SUNAT (pkcs12 + not_valid_after_utc requieren >=42).
-cryptography==43.0.1
+# Lectura del certificado .p12 de SUNAT. signxml 5.0 usa x509.verification.ExtensionPolicy,
+# que existe desde cryptography 45 (aunque su metadata declare >=43).
+cryptography==45.0.7
 # XML UBL 2.1 de la Guía de Remisión Transportista y su firma XMLDSig (envío directo a SUNAT).
 lxml==6.0.2
 signxml==5.0.0
