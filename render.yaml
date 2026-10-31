@@ -3,8 +3,10 @@
 # `sync: false` se piden al crear el Blueprint y nunca se guardan en el repositorio.
 #
 # Después de crear el servicio, sube el certificado .p12 como Secret File en
-# Dashboard → transporte-principe-api → Environment → Secret Files. Si lo llamas
-# certificado.p12, queda en /etc/secrets/certificado.p12 (valor de SUNAT_CERT_PATH).
+# Dashboard → transporte-principe-api → Environment → Secret Files. Render guarda
+# solo texto: pega el .p12 convertido a base64 (PowerShell:
+#   [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\ruta\certificado.p12")) | Set-Clipboard
+# ). Si lo llamas certificado.p12, queda en /etc/secrets/certificado.p12.
 
 services:
   - type: web

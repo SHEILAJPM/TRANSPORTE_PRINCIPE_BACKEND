@@ -3,6 +3,8 @@ a SUNAT. La ruta y la contraseña llegan solo por variables de entorno
 (SUNAT_CERT_PATH / SUNAT_CERT_PASSWORD); en Render la ruta apunta al Secret File
 montado en /etc/secrets/."""
 
+import base64
+import binascii
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -34,6 +36,18 @@ class CertificadoSunat:
         return self.certificado.not_valid_after_utc
 
 
+def _desde_base64(contenido: bytes) -> bytes | None:
+    """Devuelve el binario si `contenido` es un .p12 en base64; None si ya es binario."""
+    try:
+        texto = contenido.decode("ascii")
+    except UnicodeDecodeError:
+        return None  # un .p12 binario casi nunca es ASCII puro
+    try:
+        return base64.b64decode("".join(texto.split()), validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
 @lru_cache(maxsize=4)
 def _abrir_p12(ruta: Path, modificado_ns: int, contrasena: str) -> CertificadoSunat:
     # `modificado_ns` forma parte de la clave de caché: si se reemplaza el archivo
@@ -42,6 +56,12 @@ def _abrir_p12(ruta: Path, modificado_ns: int, contrasena: str) -> CertificadoSu
         contenido = ruta.read_bytes()
     except OSError as error:
         raise CertificadoSunatError(f"No se pudo leer el certificado digital en {ruta}: {error.strerror}") from error
+
+    # Los Secret Files de Render solo guardan texto: el .p12 (binario) se sube convertido
+    # a base64 y aquí se decodifica. Un .p12 binario (uso local) se lee tal cual.
+    decodificado = _desde_base64(contenido)
+    if decodificado is not None:
+        contenido = decodificado
 
     try:
         clave_privada, certificado, cadena = pkcs12.load_key_and_certificates(contenido, contrasena.encode())
