@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,7 +19,7 @@ class NovedadViaje(Base, UUIDPKMixin, TimestampMixin):
 
     tipo_novedad: Mapped[str] = mapped_column(String(50), nullable=False)
     descripcion: Mapped[str] = mapped_column(Text, nullable=False)
-    fecha: Mapped[datetime] = mapped_column(nullable=False)
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     latitud: Mapped[float | None] = mapped_column(Numeric(9, 6))
     longitud: Mapped[float | None] = mapped_column(Numeric(9, 6))
     foto_url: Mapped[str | None] = mapped_column(String(500))

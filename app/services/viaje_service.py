@@ -13,6 +13,7 @@ from app.models.pesos_medidas import ConstanciaPesosMedidas
 from app.models.viaje import Viaje
 from app.services.pesos_medidas_service import construir_constancia_pesos_medidas
 from app.utils.correlativos import generar_correlativo, generar_numero_serie_sunat
+from app.utils.fechas import en_hora_peru
 
 
 class ModalidadInconsistenteError(Exception):
@@ -135,7 +136,7 @@ async def activar_viaje(
         cliente_id=datos.cliente_id,
         serie=serie_guia_remision,
         numero=await generar_numero_serie_sunat(db, tipo="GUIA_REMISION", serie=serie_guia_remision),
-        fecha_emision=datos.fecha_salida_programada.date(),
+        fecha_emision=en_hora_peru(datos.fecha_salida_programada).date(),
         motivo_traslado=datos.motivo_traslado or "VENTA",
         peso_bruto_total_kg=float(datos.peso_tm) * 1000,
         numero_bultos=datos.numero_bultos,

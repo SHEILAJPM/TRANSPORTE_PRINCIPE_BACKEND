@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Numeric, String, Text
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -45,7 +45,7 @@ class ConstanciaPesosMedidas(Base, UUIDPKMixin, TimestampMixin):
 
     tipo_control: Mapped[str] = mapped_column(String(30), default="BALANZA", nullable=False)
     lugar_verificacion: Mapped[str | None] = mapped_column(String(150))
-    fecha_verificacion: Mapped[datetime] = mapped_column(nullable=False)
+    fecha_verificacion: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     peso_bruto_kg: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     tara_kg: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,7 +23,7 @@ class GastoViaje(Base, UUIDPKMixin, TimestampMixin):
 
     tipo_gasto: Mapped[TipoGastoViaje] = mapped_column(Enum(TipoGastoViaje, name="tipo_gasto_viaje"), nullable=False)
     monto: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
-    fecha: Mapped[datetime] = mapped_column(nullable=False)
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     # Campos específicos de combustible.
     galones: Mapped[float | None] = mapped_column(Numeric(8, 3))
@@ -36,7 +36,7 @@ class GastoViaje(Base, UUIDPKMixin, TimestampMixin):
     # Sincronización offline desde la app móvil del chofer.
     uuid_dispositivo: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     sincronizado: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    fecha_sincronizacion: Mapped[datetime | None]
+    fecha_sincronizacion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     viaje: Mapped["Viaje"] = relationship(back_populates="gastos")
 

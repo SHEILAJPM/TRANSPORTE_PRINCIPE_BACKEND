@@ -43,7 +43,7 @@ from app.services.sunat_gre_api_service import (
     credenciales_faltantes,
     empaquetar_zip,
 )
-from app.utils.fechas import ahora_peru
+from app.utils.fechas import ahora_peru, en_hora_peru
 from app.utils.xml_seguro import XmlInvalidoError, parsear_xml
 
 logger = logging.getLogger(__name__)
@@ -103,7 +103,7 @@ async def _construir_datos(db: AsyncSession, guia: GuiaRemision) -> tuple[ubl.Da
         advertencias.append("No se registró destinatario: se usará al cliente del viaje como destinatario")
 
     hoy = ahora_peru().date()
-    fecha_inicio = viaje.fecha_salida_programada.date()
+    fecha_inicio = en_hora_peru(viaje.fecha_salida_programada).date()
     if fecha_inicio < hoy:
         advertencias.append(
             f"La salida programada ({fecha_inicio:%d/%m/%Y}) ya pasó: se declarará hoy como inicio del traslado"

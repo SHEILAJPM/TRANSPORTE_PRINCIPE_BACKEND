@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPKMixin
@@ -23,7 +23,7 @@ class Empresa(Base, UUIDPKMixin, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(150))
 
     logo_url: Mapped[str | None] = mapped_column(String(500))
-    logo_actualizado_en: Mapped[datetime | None]
+    logo_actualizado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     serie_factura_default: Mapped[str | None] = mapped_column(String(4))
     serie_guia_remision_default: Mapped[str | None] = mapped_column(String(4))

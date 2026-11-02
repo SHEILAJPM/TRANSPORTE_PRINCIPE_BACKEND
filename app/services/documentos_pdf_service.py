@@ -12,6 +12,7 @@ from app.models.flota import Carreta, Tracto
 from app.models.pesos_medidas import ConstanciaPesosMedidas
 from app.models.viaje import Viaje
 from app.services.pdf_service import renderizar_pdf
+from app.utils.fechas import en_hora_peru
 
 
 class DocumentoNoEncontradoError(Exception):
@@ -159,7 +160,7 @@ async def generar_pdf_guia_remision(db: AsyncSession, guia_remision_id: uuid.UUI
             "numero": viaje.numero if viaje else None,
             "origen": f"{viaje.origen_direccion}, {viaje.origen_distrito}, {viaje.origen_provincia}" if viaje else None,
             "destino": f"{viaje.destino_direccion}, {viaje.destino_distrito}, {viaje.destino_provincia}" if viaje else None,
-            "fecha_salida_programada": viaje.fecha_salida_programada if viaje else None,
+            "fecha_salida_programada": en_hora_peru(viaje.fecha_salida_programada) if viaje else None,
         },
         "tracto": {"placa": tracto.placa, "marca": tracto.marca} if tracto else None,
         "carreta": {"placa": carreta.placa, "tipo_carreta": carreta.tipo_carreta.value} if carreta else None,
@@ -192,7 +193,7 @@ async def generar_pdf_constancia_pesos_medidas(db: AsyncSession, constancia_id: 
             "numero": constancia.numero,
             "tipo_control": constancia.tipo_control,
             "lugar_verificacion": constancia.lugar_verificacion,
-            "fecha_verificacion": constancia.fecha_verificacion,
+            "fecha_verificacion": en_hora_peru(constancia.fecha_verificacion),
             "peso_bruto_kg": float(constancia.peso_bruto_kg),
             "tara_kg": float(constancia.tara_kg),
             "peso_neto_kg": float(constancia.peso_neto_kg),

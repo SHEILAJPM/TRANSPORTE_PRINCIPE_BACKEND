@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -57,7 +57,7 @@ class Cotizacion(Base, UUIDPKMixin, TimestampMixin):
         Enum(EstadoCotizacion, name="estado_cotizacion"), default=EstadoCotizacion.BORRADOR, nullable=False
     )
     fecha_emision: Mapped[date] = mapped_column(nullable=False)
-    convertida_en: Mapped[datetime | None]
+    convertida_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     viajes: Mapped[list["Viaje"]] = relationship(back_populates="cotizacion")
     cliente: Mapped["Cliente"] = relationship(foreign_keys=[cliente_id])

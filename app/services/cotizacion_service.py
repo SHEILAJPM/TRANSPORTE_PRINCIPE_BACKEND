@@ -21,6 +21,7 @@ from app.models.viaje import Viaje
 from app.services.pesos_medidas_service import construir_constancia_pesos_medidas
 from app.utils.correlativos import generar_correlativo, generar_numero_serie_sunat
 from app.utils.dinero import a_decimal, redondear_moneda
+from app.utils.fechas import en_hora_peru
 
 
 class CotizacionYaConvertidaError(Exception):
@@ -241,7 +242,7 @@ async def convertir_cotizacion_a_viajes(
             cliente_id=cotizacion.cliente_id,
             serie=serie_guia_remision,
             numero=await generar_numero_serie_sunat(db, tipo="GUIA_REMISION", serie=serie_guia_remision),
-            fecha_emision=asignacion.fecha_salida_programada.date(),
+            fecha_emision=en_hora_peru(asignacion.fecha_salida_programada).date(),
             motivo_traslado="VENTA",
             peso_bruto_total_kg=float(peso_tm_por_camion) * 1000,
             estado_sunat=EstadoSunat.PENDIENTE,

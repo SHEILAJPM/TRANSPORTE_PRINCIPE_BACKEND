@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -55,9 +55,9 @@ class Viaje(Base, UUIDPKMixin, TimestampMixin):
 
     peso_tm: Mapped[float] = mapped_column(Numeric(10, 3), nullable=False)
 
-    fecha_salida_programada: Mapped[datetime] = mapped_column(nullable=False)
-    fecha_salida_real: Mapped[datetime | None]
-    fecha_llegada_real: Mapped[datetime | None]
+    fecha_salida_programada: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fecha_salida_real: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fecha_llegada_real: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     dias_viaje: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     noches_viaje: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
