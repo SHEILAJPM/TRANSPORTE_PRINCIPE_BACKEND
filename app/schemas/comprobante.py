@@ -82,12 +82,19 @@ class GuiaRemisionListItemResponse(BaseModel):
     viaje_numero: str
     serie: str
     numero: str
+    cliente_id: uuid.UUID
     cliente_razon_social: str
+    destinatario_razon_social: str | None
+    tracto_placa: str | None
+    carreta_placa: str | None
+    chofer_nombre: str | None
     fecha_emision: date
     peso_bruto_total_kg: float
     estado_sunat: EstadoSunat
     mensaje_sunat: str | None
     pdf_url: str | None
+    xml_firmado_disponible: bool
+    cdr_disponible: bool
 
 
 class FacturaListItemResponse(BaseModel):
@@ -99,12 +106,42 @@ class FacturaListItemResponse(BaseModel):
     serie: str
     numero: str
     cliente_razon_social: str
+    tracto_placa: str | None
+    chofer_nombre: str | None
+    guia_remision: str | None
     fecha_emision: date
     moneda: str
+    subtotal: float
+    igv: float
     total: float
+    detraccion_monto: float | None
     estado_sunat: EstadoSunat
     mensaje_sunat: str | None
     pdf_url: str | None
+    xml_url: str | None
+    cdr_url: str | None
+
+
+class TotalesFacturacionResponse(BaseModel):
+    """Solo comprobantes aceptados por SUNAT; las notas de crédito restan."""
+
+    cantidad: int
+    base: float
+    igv: float
+    total: float
+    detracciones: float
+
+
+class ViajeFacturableResponse(BaseModel):
+    viaje_id: uuid.UUID
+    viaje_numero: str
+    cliente_razon_social: str
+    origen_distrito: str
+    destino_distrito: str
+    fecha_salida_programada: datetime
+    estado_viaje: str
+    guia_remision: str | None
+    guia_estado_sunat: EstadoSunat | None
 
 
 class GuiaRemisionActualizarRequest(BaseModel):

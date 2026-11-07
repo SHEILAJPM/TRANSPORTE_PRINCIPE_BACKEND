@@ -113,6 +113,18 @@ class ClienteSunatGre:
         datos = response.json()
         return datos["access_token"], time.monotonic() + int(datos.get("expires_in", 3600))
 
+    async def probar_credenciales(self) -> int:
+        """Pide un token nuevo (sin usar el caché) y no envía ningún documento: valida
+        juntos el client ID/secret de la API y el usuario/clave SOL. Devuelve los
+        segundos de vigencia del token."""
+        try:
+            token, vence = await self._pedir_token()
+        except httpx.TransportError as error:
+            raise SunatGreError(f"No se pudo conectar con el servicio de autenticación de SUNAT: {error}") from error
+        async with _tokens_lock:
+            _tokens[self._clave_cache] = (token, vence)
+        return int(vence - time.monotonic())
+
     async def _token(self, renovar: bool = False) -> str:
         async with _tokens_lock:
             guardado = _tokens.get(self._clave_cache)

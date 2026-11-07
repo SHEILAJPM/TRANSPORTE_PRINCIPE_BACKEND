@@ -12,9 +12,11 @@ from app.schemas.cliente import ClienteResponse
 from app.schemas.comprobante import BienGuia
 from app.schemas.sunat import (
     CertificadoEstadoResponse,
+    ConexionResponse,
     DniConsultaResponse,
     GuiaRemitenteImportadaResponse,
     ParteGuia,
+    PruebaConexionResponse,
     PuntoGuia,
     RucConsultaResponse,
 )
@@ -25,6 +27,7 @@ from app.services.guia_remitente_service import (
     obtener_o_crear_cliente_remitente,
 )
 from app.services.sunat_certificado_service import CertificadoSunatError, cargar_certificado
+from app.services.sunat_conexion_service import estado_conexiones, probar_conexion_gre
 from app.services.sunat_service import ApiSunatError, ApiSunatService, obtener_o_crear_cliente
 from app.utils.xml_seguro import XmlInvalidoError
 
@@ -124,13 +127,19 @@ async def importar_guia_remitente(
 
 
 @router.get("/certificado/estado", response_model=CertificadoEstadoResponse)
-async def estado_certificado(usuario_actual: Usuario = Depends(require_roles(RolUsuario.ADMIN))):
-    """Verifica que el certificado .p12 esté configurado, abra con su contraseña y
-    no esté vencido. Siempre responde 200: el resultado va en `listo_para_firmar`."""
+async def estado_certificado(
+    db: AsyncSession = Depends(get_db), usuario_actual: Usuario = Depends(require_roles(RolUsuario.ADMIN))
+):
+    """Verifica que el certificado .p12 esté configurado, abra con su contraseña y no
+    esté vencido, y lista el estado de cada conexión (certificado, credenciales de API
+    para guías, usuario/clave SOL y facturas). Siempre responde 200; no contacta a SUNAT."""
+    conexiones = [
+        ConexionResponse(**vars(c)) for c in estado_conexiones(await db.get(Empresa, usuario_actual.empresa_id))
+    ]
     try:
         certificado = cargar_certificado()
     except CertificadoSunatError as error:
-        return CertificadoEstadoResponse(listo_para_firmar=False, mensaje=str(error))
+        return CertificadoEstadoResponse(listo_para_firmar=False, mensaje=str(error), conexiones=conexiones)
 
     return CertificadoEstadoResponse(
         listo_para_firmar=True,
@@ -138,4 +147,18 @@ async def estado_certificado(usuario_actual: Usuario = Depends(require_roles(Rol
         titular=certificado.titular,
         vence_en=certificado.vence_en,
         dias_para_vencer=(certificado.vence_en - datetime.now(timezone.utc)).days,
+        conexiones=conexiones,
+    )
+
+
+@router.post("/conexion/probar", response_model=PruebaConexionResponse)
+async def probar_conexion(
+    db: AsyncSession = Depends(get_db), usuario_actual: Usuario = Depends(require_roles(RolUsuario.ADMIN))
+):
+    """"Probar conexión con SUNAT": pide un token con el client ID/secret y el usuario/
+    clave SOL configurados. NO firma ni envía ningún documento."""
+    empresa = await db.get(Empresa, usuario_actual.empresa_id)
+    ok, mensaje = await probar_conexion_gre(empresa)
+    return PruebaConexionResponse(
+        ok=ok, mensaje=mensaje, conexiones=[ConexionResponse(**vars(c)) for c in estado_conexiones(empresa)]
     )

@@ -214,15 +214,31 @@ def _es_borrador_sin_enviar(factura: Factura) -> bool:
     )
 
 
+def comprobante_bloquea_nueva_emision(factura: Factura) -> bool:
+    """Un comprobante aceptado, o enviado y aún en proceso, impide emitir otro para el
+    mismo viaje. Los rechazados, anulados y borradores nunca enviados no bloquean."""
+    return factura.estado_sunat == EstadoSunat.ACEPTADO or (
+        factura.estado_sunat == EstadoSunat.PENDIENTE and not _es_borrador_sin_enviar(factura)
+    )
+
+
 def _bloqueos(ctx: _Contexto) -> list[str]:
     bloqueos = []
-    if ctx.viaje.estado not in ESTADOS_VIAJE_FACTURABLES:
-        bloqueos.append("El comprobante se emite cuando el viaje está FINALIZADO (mercadería descargada)")
+    guia_aceptada = ctx.guia is not None and ctx.guia.estado_sunat == EstadoSunat.ACEPTADO
+    if ctx.viaje.estado == EstadoViaje.CANCELADO:
+        bloqueos.append("El viaje está cancelado")
+    elif ctx.viaje.estado not in ESTADOS_VIAJE_FACTURABLES and not guia_aceptada:
+        bloqueos.append(
+            "El comprobante se emite cuando el viaje está FINALIZADO (mercadería descargada) "
+            "o cuando su guía de remisión ya fue aceptada por SUNAT"
+        )
     for f in ctx.comprobantes:
+        if not comprobante_bloquea_nueva_emision(f):
+            continue
         etiqueta = f"{'La factura' if f.tipo_documento == TipoDocumentoVenta.FACTURA else 'La boleta'} {f.serie}-{f.numero}"
         if f.estado_sunat == EstadoSunat.ACEPTADO:
             bloqueos.append(f"{etiqueta} de este viaje ya fue aceptada por SUNAT")
-        elif f.estado_sunat == EstadoSunat.PENDIENTE and not _es_borrador_sin_enviar(f):
+        else:
             bloqueos.append(f"{etiqueta} ya fue enviada y está pendiente: reintenta su envío en lugar de emitir otra")
     return bloqueos
 

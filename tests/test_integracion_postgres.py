@@ -10,7 +10,7 @@ no está instalado (`pip install pgserver`).
 import asyncio
 import tempfile
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -32,8 +32,13 @@ from app.models.cotizacion import Cotizacion  # noqa: E402
 from app.models.enums import EstadoCotizacion, TipoDocumentoIdentidad  # noqa: E402
 from app.models.flota import Tracto  # noqa: E402
 from app.services.auth_service import crear_o_restablecer_admin  # noqa: E402
+from app.utils.fechas import ZONA_PERU  # noqa: E402
 
 BACKEND = Path(__file__).resolve().parent.parent
+
+# Salida mañana a las 08:00 de Lima (13:00 UTC): una fecha pasada se reemplaza por hoy.
+MANANA = (datetime.now(ZONA_PERU) + timedelta(days=1)).date()
+SALIDA_ISO = f"{MANANA.isoformat()}T13:00:00.000Z"
 EMAIL, PASSWORD = "admin@prueba.pe", "clave-segura-123"
 
 
@@ -110,7 +115,7 @@ def _payload_activar(ids):
         "origen_departamento": "Lima", "origen_ubigeo": "150101",
         "destino_direccion": "Calle 2", "destino_distrito": "Arequipa", "destino_provincia": "Arequipa",
         "destino_departamento": "Arequipa", "destino_ubigeo": "040101",
-        "peso_tm": 28.5, "numero_bultos": None, "fecha_salida_programada": "2026-11-03T13:00:00.000Z",
+        "peso_tm": 28.5, "numero_bultos": None, "fecha_salida_programada": SALIDA_ISO,
         "precinto_seguridad": None, "lugar_verificacion_pesos": None, "motivo_traslado": None,
         "remitente_guia_ruc_emisor": None, "remitente_guia_serie": None, "remitente_guia_numero": None,
         "bienes": [{"descripcion": "Cemento", "cantidad": 1, "unidad": "NIU", "codigo": None}],
@@ -127,11 +132,11 @@ def test_viaje_sin_cotizacion_de_principio_a_fin(entorno):
     viaje_id = r.json()["viaje"]["id"]
 
     viaje = http.get(f"/api/v1/viajes/{viaje_id}").json()
-    assert viaje["fecha_salida_programada"].startswith("2026-11-03T13:00:00")  # se conserva el instante exacto
+    assert viaje["fecha_salida_programada"].startswith(f"{MANANA.isoformat()}T13:00:00")  # se conserva el instante
 
     r = http.post(f"/api/v1/viajes/{viaje_id}/guia-remision/vista-previa")
     assert r.status_code == 200, r.text
-    assert r.json()["datos"]["fecha_inicio_traslado"] == "2026-11-03"  # día en Perú, no en UTC
+    assert r.json()["datos"]["fecha_inicio_traslado"] == MANANA.isoformat()  # día en Perú, no en UTC
 
     r = http.patch(f"/api/v1/viajes/{viaje_id}/estado", json={"estado": "EN_RUTA", "fecha_salida_real": "2026-11-03T13:10:00.000Z"})
     assert r.status_code == 200, r.text
@@ -163,3 +168,118 @@ def test_conversion_desde_cotizacion_sigue_funcionando(entorno):
         ]},
     )
     assert r.status_code == 200, r.text
+
+
+# --- Emisión completa de guía y factura (SUNAT y apisunat.pe simulados, BD real) ---
+
+from tests.test_guia_transportista import _cdr_zip, certificado, sunat_simulada  # noqa: E402,F401  (fixtures)
+
+
+def _viaje_finalizado(http, ids, salida=SALIDA_ISO):
+    payload = _payload_activar(ids) | {"fecha_salida_programada": salida}
+    r = http.post("/api/v1/viajes/activar", json=payload)
+    assert r.status_code == 201, r.text
+    return r.json()["viaje"]["id"]
+
+
+def test_emision_de_guia_con_sunat_simulada(entorno, sunat_simulada):
+    http, ids = entorno
+    viaje_id = _viaje_finalizado(http, ids)
+
+    vista = http.post(f"/api/v1/viajes/{viaje_id}/guia-remision/vista-previa").json()
+    # La placa del tracto de prueba no tiene guion y el chofer tiene licencia: sin errores bloqueantes.
+    assert vista["puede_emitir"], vista["errores"]
+
+    r = http.post(f"/api/v1/viajes/{viaje_id}/guia-remision/emitir-sunat", json={"huella_vista_previa": vista["huella"]})
+    assert r.status_code == 200, r.text
+    guia = r.json()
+    assert guia["estado_sunat"] == "ACEPTADO", guia
+    assert guia["xml_firmado_disponible"] and guia["cdr_disponible"]
+
+    xml = http.get(f"/api/v1/viajes/{viaje_id}/guia-remision/xml")
+    assert xml.status_code == 200 and xml.content.startswith(b"<?xml")
+    cdr = http.get(f"/api/v1/viajes/{viaje_id}/guia-remision/cdr")
+    assert cdr.status_code == 200 and cdr.content[:2] == b"PK"
+
+    # Ya aceptada: un segundo envío se rechaza sin contactar a SUNAT.
+    r = http.post(f"/api/v1/viajes/{viaje_id}/guia-remision/emitir-sunat", json={"huella_vista_previa": vista["huella"]})
+    assert r.status_code == 409
+
+
+def test_emision_de_factura_con_apisunat_simulado(entorno, monkeypatch):
+    from app.services import apisunat_facturacion_service as apisunat
+
+    enviados = []
+
+    async def emitir_falso(self, ruta, payload):
+        enviados.append((ruta, payload))
+        return {"success": True, "message": "Aceptado", "payload": {
+            "estado": "ACEPTADO", "hash": "abc123", "xml": "https://x/f.xml", "cdr": "https://x/r.zip", "pdf": {"a4": "https://x/f.pdf"}}}
+
+    monkeypatch.setattr(apisunat._ClienteApiSunatFacturacion, "emitir", emitir_falso)
+
+    http, ids = entorno
+    viaje_id = _viaje_finalizado(http, ids)
+    for estado in ("EN_RUTA", "FINALIZADO"):
+        assert http.patch(f"/api/v1/viajes/{viaje_id}/estado", json={"estado": estado}).status_code == 200
+
+    entrada = {"tipo_documento": "FACTURA", "precio": 1500, "precio_incluye_igv": False}
+    vista = http.post(f"/api/v1/viajes/{viaje_id}/comprobante/vista-previa", json=entrada).json()
+    assert vista["puede_emitir"], vista["errores"]
+    assert (vista["subtotal"], vista["igv"], vista["total"], vista["detraccion_monto"]) == (1500.0, 270.0, 1770.0, 71.0)
+
+    r = http.post(f"/api/v1/viajes/{viaje_id}/comprobante/emitir", json=entrada | {"huella_vista_previa": vista["huella"]})
+    assert r.status_code == 200, r.text
+    factura = r.json()
+    assert factura["estado_sunat"] == "ACEPTADO" and factura["serie"].startswith("F")
+    assert factura["detraccion_monto"] == 71.0 and factura["guia_remision_id"]
+
+    ruta, payload = enviados[0]
+    assert ruta == "/api/v3/documents" and payload["documento"] == "factura"
+    assert (payload["gravadas"], payload["igv"], payload["total"]) == ("1500.00", "270.00", "1770.00")
+
+    assert http.get(f"/api/v1/viajes/{viaje_id}/factura").json()["id"] == factura["id"]
+    listado = http.get("/api/v1/comprobantes/facturas").json()
+    assert any(f["id"] == factura["id"] for f in listado)
+    # Con la factura aceptada ya no se puede emitir otra para el mismo viaje.
+    assert not http.get(f"/api/v1/viajes/{viaje_id}/comprobante/borrador").json()["puede_emitir"]
+
+
+def test_listados_de_guias_y_facturas_con_filtros_y_totales(entorno, monkeypatch):
+    from app.services import apisunat_facturacion_service as apisunat
+
+    async def emitir_falso(self, ruta, payload):
+        return {"success": True, "message": "Aceptado", "payload": {"estado": "ACEPTADO", "hash": "h", "xml": "https://x/f.xml"}}
+
+    monkeypatch.setattr(apisunat._ClienteApiSunatFacturacion, "emitir", emitir_falso)
+    http, ids = entorno
+
+    # Un viaje en ruta (sin guía aceptada) no se puede facturar; uno finalizado sí.
+    en_ruta = _viaje_finalizado(http, ids)
+    http.patch(f"/api/v1/viajes/{en_ruta}/estado", json={"estado": "EN_RUTA"})
+    terminado = _viaje_finalizado(http, ids)
+    for estado in ("EN_RUTA", "FINALIZADO"):
+        http.patch(f"/api/v1/viajes/{terminado}/estado", json={"estado": estado})
+    facturables = {v["viaje_id"] for v in http.get("/api/v1/comprobantes/facturables").json()}
+    assert terminado in facturables and en_ruta not in facturables
+
+    entrada = {"tipo_documento": "FACTURA", "precio": 1180, "precio_incluye_igv": True}
+    vista = http.post(f"/api/v1/viajes/{terminado}/comprobante/vista-previa", json=entrada).json()
+    assert http.post(f"/api/v1/viajes/{terminado}/comprobante/emitir", json=entrada | {"huella_vista_previa": vista["huella"]}).status_code == 200
+    assert terminado not in {v["viaje_id"] for v in http.get("/api/v1/comprobantes/facturables").json()}
+
+    guias = http.get("/api/v1/comprobantes/guias-remision", params={"placa": "abc", "chofer_id": ids["chofer"]}).json()
+    assert guias and all(g["tracto_placa"] == "ABC123" and g["chofer_nombre"] == "PEDRO QUISPE" for g in guias)
+    assert http.get("/api/v1/comprobantes/guias-remision", params={"placa": "ZZZ999"}).json() == []
+    assert http.get("/api/v1/comprobantes/guias-remision", params={"desde": "2020-01-01", "hasta": "2020-01-31"}).json() == []
+
+    hoy = datetime.now(ZONA_PERU).date().isoformat()
+    filtros = {"desde": hoy, "hasta": hoy, "cliente_id": ids["cliente"], "tipo_documento": "FACTURA"}
+    facturas = http.get("/api/v1/comprobantes/facturas", params=filtros).json()
+    assert facturas and all(f["tipo_documento"] == "FACTURA" for f in facturas)
+    assert any(f["subtotal"] == 1000.0 and f["igv"] == 180.0 and f["detraccion_monto"] == 47.0 for f in facturas)
+
+    totales = http.get("/api/v1/comprobantes/facturas/totales", params=filtros).json()
+    assert totales["cantidad"] == len([f for f in facturas if f["estado_sunat"] == "ACEPTADO"])
+    assert totales["total"] == sum(f["total"] for f in facturas if f["estado_sunat"] == "ACEPTADO")
+    assert totales["detracciones"] == sum(f["detraccion_monto"] or 0 for f in facturas if f["estado_sunat"] == "ACEPTADO")

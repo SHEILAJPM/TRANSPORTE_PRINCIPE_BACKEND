@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import asdict
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.encoders import jsonable_encoder
@@ -25,6 +26,8 @@ from app.schemas.comprobante import (
     GuiaRemisionListItemResponse,
     GuiaRemisionResponse,
     GuiaVistaPreviaResponse,
+    TotalesFacturacionResponse,
+    ViajeFacturableResponse,
 )
 from app.services import archivos_privados_service, facturacion_viaje_service, guia_transportista_service
 from app.services.apisunat_facturacion_service import (
@@ -38,7 +41,13 @@ from app.services.apisunat_facturacion_service import (
 from app.services.guia_transportista_service import GuiaNoEmitibleError, HuellaNoCoincideError
 from app.services.archivos_privados_service import ArchivoPrivadoNoEncontradoError
 from app.services.sunat_gre_api_service import SunatGreError
-from app.services.comprobantes_service import listar_facturas, listar_guias_remision
+from app.services.comprobantes_service import (
+    FiltrosComprobantes,
+    listar_facturables,
+    listar_facturas,
+    listar_guias_remision,
+    totalizar,
+)
 from app.services.documentos_pdf_service import (
     DocumentoNoEncontradoError,
     generar_pdf_factura,
@@ -191,26 +200,62 @@ async def emitir_comprobante(
     return factura
 
 
+def _filtros(
+    desde: date | None = None,
+    hasta: date | None = None,
+    cliente_id: uuid.UUID | None = None,
+    placa: str | None = None,
+    chofer_id: uuid.UUID | None = None,
+    estado_sunat: EstadoSunat | None = None,
+    tipo_documento: TipoDocumentoVenta | None = None,
+    q: str | None = None,
+) -> FiltrosComprobantes:
+    return FiltrosComprobantes(
+        desde=desde, hasta=hasta, cliente_id=cliente_id, placa=placa, chofer_id=chofer_id,
+        estado_sunat=estado_sunat, tipo_documento=tipo_documento, q=q,
+    )
+
+
 @router_listado.get("/guias-remision", response_model=list[GuiaRemisionListItemResponse])
 async def listar_guias_remision_endpoint(
-    estado_sunat: EstadoSunat | None = None,
-    q: str | None = None,
+    filtros: FiltrosComprobantes = Depends(_filtros),
     db: AsyncSession = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    """Listado de todas las Guías de Remisión de la empresa, con su estado SUNAT."""
-    return await listar_guias_remision(db, empresa_id=usuario_actual.empresa_id, estado_sunat=estado_sunat, q=q)
+    """Guías de Remisión de la empresa. Filtros: fecha de emisión (desde/hasta), cliente,
+    placa del tracto o carreta, chofer, estado SUNAT y texto libre."""
+    return await listar_guias_remision(db, empresa_id=usuario_actual.empresa_id, filtros=filtros)
 
 
 @router_listado.get("/facturas", response_model=list[FacturaListItemResponse])
 async def listar_facturas_endpoint(
-    estado_sunat: EstadoSunat | None = None,
-    q: str | None = None,
+    filtros: FiltrosComprobantes = Depends(_filtros),
     db: AsyncSession = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    """Listado de todas las Facturas y Boletas de la empresa, con su estado SUNAT."""
-    return await listar_facturas(db, empresa_id=usuario_actual.empresa_id, estado_sunat=estado_sunat, q=q)
+    """Facturas, Boletas y Notas de Crédito, con los mismos filtros que las guías más el tipo."""
+    return await listar_facturas(db, empresa_id=usuario_actual.empresa_id, filtros=filtros)
+
+
+@router_listado.get("/facturas/totales", response_model=TotalesFacturacionResponse)
+async def totales_facturas_endpoint(
+    filtros: FiltrosComprobantes = Depends(_filtros),
+    db: AsyncSession = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    """Base, IGV, total y detracciones del periodo filtrado (solo aceptados; las notas de
+    crédito restan)."""
+    return totalizar(await listar_facturas(db, empresa_id=usuario_actual.empresa_id, filtros=filtros))
+
+
+@router_listado.get("/facturables", response_model=list[ViajeFacturableResponse])
+async def listar_facturables_endpoint(
+    db: AsyncSession = Depends(get_db),
+    usuario_actual: Usuario = Depends(require_roles(*_ROLES_ESCRITURA)),
+):
+    """Viajes para "Nueva factura": terminados o con la guía aceptada por SUNAT, y sin un
+    comprobante aceptado o en proceso."""
+    return await listar_facturables(db, empresa_id=usuario_actual.empresa_id)
 
 
 @router.get("/{viaje_id}/guia-remision", response_model=GuiaRemisionResponse)

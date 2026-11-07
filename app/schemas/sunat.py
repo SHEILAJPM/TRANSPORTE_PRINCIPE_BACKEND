@@ -61,11 +61,26 @@ class GuiaRemitenteImportadaResponse(BaseModel):
     advertencias: list[str]
 
 
+class ConexionResponse(BaseModel):
+    clave: str  # certificado | credenciales_gre | credenciales_sol | facturas
+    nombre: str
+    lista: bool
+    detalle: str
+
+
 class CertificadoEstadoResponse(BaseModel):
-    """Estado del certificado digital .p12 (nunca expone la clave ni la contraseña)."""
+    """Estado del certificado digital .p12 y de cada conexión con SUNAT (nunca expone
+    claves ni contraseñas)."""
 
     listo_para_firmar: bool
     mensaje: str
     titular: str | None = None
     vence_en: datetime | None = None
     dias_para_vencer: int | None = None
+    conexiones: list[ConexionResponse] = []
+
+
+class PruebaConexionResponse(BaseModel):
+    ok: bool
+    mensaje: str
+    conexiones: list[ConexionResponse]

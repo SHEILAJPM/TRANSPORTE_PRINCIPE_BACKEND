@@ -153,7 +153,10 @@ def test_boleta_sin_documento_solo_menor_a_700():
 
 
 def test_bloqueos_por_estado_y_comprobantes_previos():
-    assert any("FINALIZADO" in b for b in fv._bloqueos(_ctx(estado=EstadoViaje.EN_RUTA)))
+    # En ruta sin guía aceptada: aún no se factura. Con la guía aceptada por SUNAT sí.
+    assert any("FINALIZADO" in b for b in fv._bloqueos(_ctx(estado=EstadoViaje.EN_RUTA, guia_aceptada=False)))
+    assert fv._bloqueos(_ctx(estado=EstadoViaje.EN_RUTA, guia_aceptada=True)) == []
+    assert any("cancelado" in b for b in fv._bloqueos(_ctx(estado=EstadoViaje.CANCELADO)))
 
     aceptada = Factura(tipo_documento=TipoDocumentoVenta.FACTURA, serie="F001", numero="00000001", estado_sunat=EstadoSunat.ACEPTADO)
     assert any("ya fue aceptada" in b for b in fv._bloqueos(_ctx(comprobantes=[aceptada])))
