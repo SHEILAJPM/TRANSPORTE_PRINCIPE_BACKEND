@@ -5,6 +5,7 @@ montado en /etc/secrets/."""
 
 import base64
 import binascii
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -36,16 +37,46 @@ class CertificadoSunat:
         return self.certificado.not_valid_after_utc
 
 
+_RE_BASE64 = re.compile(r"[A-Za-z0-9+/]+=*")
+
+
 def _desde_base64(contenido: bytes) -> bytes | None:
     """Devuelve el binario si `contenido` es un .p12 en base64; None si ya es binario."""
     try:
-        texto = contenido.decode("ascii")
+        texto = "".join(contenido.decode("ascii").split())
     except UnicodeDecodeError:
         return None  # un .p12 binario casi nunca es ASCII puro
+    if not texto or not _RE_BASE64.fullmatch(texto):
+        return None
+    # Si se pegó cortado, se decodifica lo que llegó para poder avisar que está incompleto.
+    texto = texto.rstrip("=")
+    texto = texto[: len(texto) - len(texto) % 4] if len(texto) % 4 == 1 else texto
     try:
-        return base64.b64decode("".join(texto.split()), validate=True)
+        return base64.b64decode(texto + "=" * (-len(texto) % 4))
     except (binascii.Error, ValueError):
         return None
+
+
+def _diagnosticar_der(contenido: bytes) -> str | None:
+    """Un .p12 es una estructura DER: empieza con 0x30 y declara su propio largo. Así
+    se distingue un archivo pegado a medias (o que no es un certificado) de una
+    contraseña equivocada."""
+    if len(contenido) < 4 or contenido[0] != 0x30:
+        return (
+            "El Secret File del certificado no es un .p12 ni su texto en base64. Vuelve a generarlo con "
+            "el comando de PowerShell y pégalo completo en Render (Secret Files → certificado.p12)."
+        )
+    if contenido[1] & 0x80:
+        bytes_largo = contenido[1] & 0x7F
+        esperado = 2 + bytes_largo + int.from_bytes(contenido[2 : 2 + bytes_largo], "big")
+    else:
+        esperado = 2 + contenido[1]
+    if len(contenido) < esperado:
+        return (
+            f"El certificado está incompleto: se recibieron {len(contenido):,} de {esperado:,} bytes. "
+            "Probablemente el texto se pegó a medias en el Secret File; vuelve a pegarlo completo."
+        )
+    return None
 
 
 @lru_cache(maxsize=4)
@@ -63,13 +94,24 @@ def _abrir_p12(ruta: Path, modificado_ns: int, contrasena: str) -> CertificadoSu
     if decodificado is not None:
         contenido = decodificado
 
-    try:
-        clave_privada, certificado, cadena = pkcs12.load_key_and_certificates(contenido, contrasena.encode())
-    except ValueError as error:
+    problema_archivo = _diagnosticar_der(contenido)
+    if problema_archivo:
+        raise CertificadoSunatError(problema_archivo)
+
+    # Al copiar la contraseña en Render es fácil arrastrar espacios o comillas.
+    candidatas = dict.fromkeys([contrasena, contrasena.strip(), contrasena.strip().strip("\"'")])
+    for candidata in candidatas:
+        try:
+            clave_privada, certificado, cadena = pkcs12.load_key_and_certificates(contenido, candidata.encode())
+            break
+        except ValueError:
+            continue
+    else:
         raise CertificadoSunatError(
-            "No se pudo abrir el certificado digital: la contraseña (SUNAT_CERT_PASSWORD) es incorrecta "
-            "o el archivo no es un .p12 válido"
-        ) from error
+            f"El archivo del certificado está completo ({len(contenido):,} bytes), pero la contraseña "
+            "(SUNAT_CERT_PASSWORD) no lo abre. Revisa que sea la contraseña de ESTE .p12 y que en Render "
+            "no haya dos variables SUNAT_CERT_PASSWORD."
+        )
 
     if clave_privada is None or certificado is None:
         raise CertificadoSunatError(

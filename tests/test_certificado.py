@@ -62,3 +62,31 @@ def test_falta_la_ruta(monkeypatch):
     monkeypatch.setattr(settings, "SUNAT_CERT_PATH", None)
     with pytest.raises(svc.CertificadoSunatError, match="SUNAT_CERT_PATH"):
         svc.cargar_certificado()
+
+
+def test_distingue_archivo_incompleto_de_contrasena_incorrecta(monkeypatch, tmp_path, p12):
+    texto = base64.b64encode(p12).decode()
+    ruta = tmp_path / "certificado.p12"
+
+    ruta.write_text(texto[: len(texto) // 2])  # pegado a medias
+    _configurar(monkeypatch, ruta)
+    with pytest.raises(svc.CertificadoSunatError, match="incompleto"):
+        svc.cargar_certificado()
+
+    ruta.write_text("esto no es un certificado")
+    _configurar(monkeypatch, ruta)
+    with pytest.raises(svc.CertificadoSunatError, match="no es un .p12"):
+        svc.cargar_certificado()
+
+    ruta.write_text(texto)
+    _configurar(monkeypatch, ruta, contrasena="otra")
+    with pytest.raises(svc.CertificadoSunatError, match="está completo"):
+        svc.cargar_certificado()
+
+
+def test_tolera_espacios_o_comillas_en_la_contrasena(monkeypatch, tmp_path, p12):
+    ruta = tmp_path / "certificado.p12"
+    ruta.write_text(base64.b64encode(p12).decode())
+    for contrasena in (" clave123 ", '"clave123"', "clave123\n"):
+        _configurar(monkeypatch, ruta, contrasena=contrasena)
+        assert "EMPRESA PRUEBA" in svc.cargar_certificado().titular
