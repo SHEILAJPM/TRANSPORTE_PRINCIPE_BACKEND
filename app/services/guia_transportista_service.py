@@ -74,7 +74,7 @@ class VistaPreviaGuia:
     xml: str | None = None
 
 
-async def _construir_datos(db: AsyncSession, guia: GuiaRemision) -> tuple[ubl.DatosGuiaTransportista, list[str]]:
+async def construir_datos(db: AsyncSession, guia: GuiaRemision) -> tuple[ubl.DatosGuiaTransportista, list[str]]:
     viaje = await db.get(Viaje, guia.viaje_id)
     if viaje is None:
         raise DatosIncompletosError("El viaje asociado a esta guía no existe")
@@ -167,7 +167,7 @@ def _verificar_estado_emitible(guia: GuiaRemision) -> None:
 
 
 async def vista_previa(db: AsyncSession, guia: GuiaRemision) -> VistaPreviaGuia:
-    datos, advertencias = await _construir_datos(db, guia)
+    datos, advertencias = await construir_datos(db, guia)
     validacion = ubl.validar(datos)
     vista = VistaPreviaGuia(
         datos=datos,
@@ -252,7 +252,7 @@ async def emitir(db: AsyncSession, guia_remision_id: uuid.UUID, huella_confirmad
         raise DatosIncompletosError("Guía de remisión no encontrada")
     _verificar_estado_emitible(guia)
 
-    datos, _ = await _construir_datos(db, guia)
+    datos, _ = await construir_datos(db, guia)
     if datos.huella() != huella_confirmada:
         raise HuellaNoCoincideError(
             "Los datos de la guía cambiaron desde que los revisó. Vuelva a abrir la vista previa antes de emitir."

@@ -35,6 +35,12 @@
   .estado.aceptado { background: #dcfce7; color: #166534; }
   .estado.rechazado, .estado.anulado { background: #fee2e2; color: #991b1b; }
 
+  .num { text-align: right; }
+  .letras { margin-top: 8px; font-size: 10px; }
+  .label { color: #777; font-size: 8.5px; text-transform: uppercase; }
+  .pie { display: flex; gap: 14px; align-items: center; margin-top: 14px; border-top: 1px solid #ddd; padding-top: 10px; }
+  .pie img { width: 92px; height: 92px; }
+  .pie p { margin: 2px 0; }
   footer { margin-top: 30px; text-align: center; font-size: 8.5px; color: #999; }
 </style>
 </head>
@@ -54,7 +60,7 @@
     </div>
   </header>
 
-  <div class="seccion-titulo">Datos del Cliente</div>
+  <div class="seccion-titulo">{% if factura.titulo_documento.startswith('BOLETA') %}Datos del comprador{% else %}Datos del cliente{% endif %}</div>
   <div class="info-grid">
     <div class="col">
       <p><strong>{{ cliente.razon_social }}</strong></p>
@@ -63,42 +69,55 @@
     </div>
     <div class="col">
       <p><strong>Fecha de emisión:</strong> {{ factura.fecha_emision.strftime('%d/%m/%Y') }}</p>
-      <p><strong>Moneda:</strong> {{ factura.moneda }}</p>
-      {% if factura.viaje_numero %}<p><strong>Viaje asociado:</strong> {{ factura.viaje_numero }}</p>{% endif %}
-      {% if factura.guia_remision %}<p><strong>Guía de remisión:</strong> {{ factura.guia_remision }}</p>{% endif %}
+      <p><strong>Moneda:</strong> {{ 'SOLES' if factura.moneda == 'PEN' else factura.moneda }}</p>
+      {% if not factura.documento_afectado %}<p><strong>Forma de pago:</strong> {{ factura.forma_pago }}</p>{% endif %}
+      {% if factura.documento_afectado %}<p><strong>Documento que modifica:</strong> {{ factura.documento_afectado }}</p>{% endif %}
+      {% if factura.guia_remision %}<p><strong>Guía de remisión transportista:</strong> {{ factura.guia_remision }}</p>{% endif %}
+      {% if factura.viaje_numero %}<p><strong>Viaje:</strong> {{ factura.viaje_numero }}</p>{% endif %}
     </div>
   </div>
 
   <table>
-    <tr><th>Descripción</th><th class="text-right">Subtotal</th></tr>
+    <tr><th>Cant.</th><th>Unidad</th><th>Descripción</th><th class="num">Valor unitario</th><th class="num">Importe</th></tr>
     <tr>
+      <td>1</td>
+      <td>SERVICIO</td>
       <td>{{ factura.descripcion_servicio }}</td>
-      <td>S/ {{ "%.2f"|format(factura.subtotal) }}</td>
+      <td class="num">{{ "{:,.2f}".format(factura.subtotal) }}</td>
+      <td class="num">{{ "{:,.2f}".format(factura.subtotal) }}</td>
     </tr>
   </table>
 
   <table class="totales">
-    <tr><td>Subtotal:</td><td>S/ {{ "%.2f"|format(factura.subtotal) }}</td></tr>
-    <tr><td>IGV (18%):</td><td>S/ {{ "%.2f"|format(factura.igv) }}</td></tr>
-    <tr class="total"><td>TOTAL:</td><td>S/ {{ "%.2f"|format(factura.total) }}</td></tr>
+    <tr><td>{% if factura.igv %}Op. gravada{% else %}Op. exonerada{% endif %}:</td><td>S/ {{ "{:,.2f}".format(factura.subtotal) }}</td></tr>
+    <tr><td>IGV ({{ factura.porcentaje_igv }}%):</td><td>S/ {{ "{:,.2f}".format(factura.igv) }}</td></tr>
+    <tr class="total"><td>IMPORTE TOTAL:</td><td>S/ {{ "{:,.2f}".format(factura.total) }}</td></tr>
     {% if factura.detraccion %}
-    <tr><td>Detracción ({{ "%g"|format(factura.detraccion.porcentaje) }}%):</td><td>S/ {{ "%.2f"|format(factura.detraccion.monto) }}</td></tr>
-    <tr><td>Neto a pagar:</td><td>S/ {{ "%.2f"|format(factura.detraccion.neto) }}</td></tr>
+    <tr><td>Detracción ({{ "%g"|format(factura.detraccion.porcentaje) }}%):</td><td>S/ {{ "{:,.2f}".format(factura.detraccion.monto) }}</td></tr>
+    <tr><td>Neto a pagar al emisor:</td><td>S/ {{ "{:,.2f}".format(factura.detraccion.neto) }}</td></tr>
     {% endif %}
   </table>
+  <p class="letras"><strong>SON:</strong> {{ factura.total_letras }}</p>
 
   {% if factura.detraccion %}
   <p class="detraccion">
     <strong>Operación sujeta al Sistema de Pago de Obligaciones Tributarias (SPOT) — D. Leg. N.° 940.</strong>
     {% if factura.detraccion.cuenta %}
-    Depositar S/ {{ "%.2f"|format(factura.detraccion.monto) }} en la cuenta de detracciones del Banco de la Nación
+    Depositar S/ {{ "{:,.2f}".format(factura.detraccion.monto) }} en la cuenta de detracciones del Banco de la Nación
     N.° <strong>{{ factura.detraccion.cuenta }}</strong>.
     {% endif %}
   </p>
   {% endif %}
 
-  <div class="estado {{ factura.estado_sunat | lower }}">Estado SUNAT: {{ factura.estado_sunat }}</div>
+  <div class="pie">
+    {% if factura.qr %}<img src="{{ factura.qr }}" alt="Código QR SUNAT">{% endif %}
+    <div>
+      <p><span class="estado {{ factura.estado_sunat | lower }}">SUNAT: {{ factura.estado_sunat }}</span></p>
+      {% if factura.hash %}<p><span class="label">Código hash:</span> {{ factura.hash }}</p>{% endif %}
+      <p>Representación impresa de la {{ factura.titulo_documento | lower }}. Consulte su validez en www.sunat.gob.pe.</p>
+    </div>
+  </div>
 
-  <footer>{{ empresa.razon_social }} · RUC {{ empresa.ruc }} · Documento generado por el sistema de gestión Transporte Príncipe</footer>
+  <footer>{{ empresa.razon_social }} · RUC {{ empresa.ruc }}</footer>
 </body>
 </html>

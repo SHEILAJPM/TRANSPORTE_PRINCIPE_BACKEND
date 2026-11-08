@@ -3,29 +3,38 @@
 <head>
 <meta charset="utf-8">
 <style>
-  @page { size: A4; margin: 18mm 16mm; }
-  body { font-family: Helvetica, Arial, sans-serif; font-size: 10.5px; color: #1a1a1a; }
-  header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1a1a1a; padding-bottom: 10px; }
+  @page { size: A4; margin: 16mm 14mm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10px; color: #1a1a1a; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 3px solid #1a1a1a; padding-bottom: 10px; }
   header .marca { display: flex; align-items: center; gap: 10px; }
   header img { max-height: 52px; max-width: 140px; object-fit: contain; }
   header .empresa-nombre { font-size: 13px; font-weight: bold; }
-  header .empresa-ruc { font-size: 10px; color: #555; }
+  header .empresa-dato { font-size: 9.5px; color: #555; }
 
-  .doc-titulo { text-align: center; border: 2px solid #b91c34; border-radius: 4px; padding: 8px 16px; min-width: 200px; }
-  .doc-titulo .badge { font-weight: bold; color: #b91c34; font-size: 11px; }
+  .doc-titulo { text-align: center; border: 2px solid #b91c34; border-radius: 4px; padding: 8px 14px; min-width: 210px; }
+  .doc-titulo .ruc { font-size: 10px; font-weight: bold; }
+  .doc-titulo .badge { font-weight: bold; color: #b91c34; font-size: 11px; margin-top: 3px; }
   .doc-titulo .numero { font-size: 15px; font-weight: bold; margin-top: 2px; }
 
-  .seccion-titulo { background: #1a1a1a; color: #fff; font-size: 9.5px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 8px; margin-top: 14px; }
-  .info-grid { display: flex; gap: 16px; margin-top: 8px; }
+  .seccion-titulo { background: #1a1a1a; color: #fff; font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 8px; margin-top: 12px; }
+  .info-grid { display: flex; gap: 16px; margin-top: 6px; }
   .info-grid .col { flex: 1; }
   .info-grid p { margin: 2px 0; }
-  .info-grid .label { color: #777; font-size: 9px; text-transform: uppercase; }
+  .label { color: #777; font-size: 8.5px; text-transform: uppercase; }
 
-  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  td, th { padding: 6px 8px; border: 1px solid #ddd; text-align: left; }
-  th { background: #f4f4f4; font-size: 9.5px; text-transform: uppercase; color: #555; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  td, th { padding: 5px 7px; border: 1px solid #ddd; text-align: left; vertical-align: top; }
+  th { background: #f4f4f4; font-size: 8.5px; text-transform: uppercase; color: #555; }
+  .num { text-align: right; }
 
-  footer { margin-top: 30px; text-align: center; font-size: 8.5px; color: #999; }
+  .pie { display: flex; gap: 14px; align-items: center; margin-top: 14px; border-top: 1px solid #ddd; padding-top: 10px; }
+  .pie img { width: 92px; height: 92px; }
+  .pie p { margin: 2px 0; }
+  .estado { display: inline-block; padding: 2px 9px; border-radius: 12px; font-size: 8.5px; font-weight: bold; text-transform: uppercase; }
+  .estado.pendiente { background: #fef3c7; color: #92400e; }
+  .estado.aceptado { background: #dcfce7; color: #166534; }
+  .estado.rechazado, .estado.anulado { background: #fee2e2; color: #991b1b; }
+  footer { margin-top: 18px; text-align: center; font-size: 8px; color: #999; }
 </style>
 </head>
 <body>
@@ -33,68 +42,115 @@
     <div class="marca">
       {% if empresa.logo_url %}<img src="{{ empresa.logo_url }}" alt="logo">{% endif %}
       <div>
-        <div class="empresa-nombre">{{ empresa.nombre_comercial or empresa.razon_social }}</div>
-        <div class="empresa-ruc">RUC {{ empresa.ruc }} — Transportista</div>
+        <div class="empresa-nombre">{{ empresa.razon_social }}</div>
+        {% if empresa.nombre_comercial and empresa.nombre_comercial != empresa.razon_social %}<div class="empresa-dato">{{ empresa.nombre_comercial }}</div>{% endif %}
+        {% if empresa.direccion_fiscal %}<div class="empresa-dato">{{ empresa.direccion_fiscal }}</div>{% endif %}
+        {% if guia.registro_mtc %}<div class="empresa-dato">Registro MTC N.° {{ guia.registro_mtc }}</div>{% endif %}
       </div>
     </div>
     <div class="doc-titulo">
-      <div class="badge">GUÍA DE REMISIÓN ELECTRÓNICA</div>
+      <div class="ruc">RUC {{ empresa.ruc }}</div>
+      <div class="badge">GUÍA DE REMISIÓN ELECTRÓNICA TRANSPORTISTA</div>
       <div class="numero">{{ guia.serie }}-{{ guia.numero }}</div>
     </div>
   </header>
 
-  <div class="seccion-titulo">Remitente / Destinatario</div>
+  <div class="info-grid">
+    <div class="col">
+      <p class="label">Fecha de emisión</p>
+      <p>{{ guia.fecha_emision.strftime('%d/%m/%Y') }}{% if guia.hora_emision %} {{ guia.hora_emision }}{% endif %}</p>
+    </div>
+    <div class="col">
+      <p class="label">Fecha de inicio del traslado</p>
+      <p>{{ guia.fecha_inicio_traslado.strftime('%d/%m/%Y') }}</p>
+    </div>
+    <div class="col">
+      <p class="label">Peso bruto total</p>
+      <p>{{ "{:,.3f}".format(guia.peso_bruto_kg) }} KGM{% if guia.numero_bultos %} · {{ guia.numero_bultos }} bulto(s){% endif %}</p>
+    </div>
+  </div>
+
+  <div class="seccion-titulo">Remitente y destinatario</div>
   <div class="info-grid">
     <div class="col">
       <p class="label">Remitente</p>
-      <p><strong>{{ empresa.razon_social }}</strong> — RUC {{ empresa.ruc }}</p>
+      <p><strong>{{ remitente.razon_social }}</strong></p>
+      <p>{{ remitente.tipo_documento }} {{ remitente.numero_documento }}</p>
     </div>
     <div class="col">
       <p class="label">Destinatario</p>
-      <p><strong>{{ cliente.razon_social }}</strong> — {{ cliente.tipo_documento }} {{ cliente.numero_documento }}</p>
+      <p><strong>{{ destinatario.razon_social }}</strong></p>
+      <p>{{ destinatario.tipo_documento }} {{ destinatario.numero_documento }}</p>
     </div>
   </div>
+  {% if documentos_relacionados %}
+  <table>
+    <tr><th>Documento relacionado</th><th>Número</th><th>RUC del emisor</th></tr>
+    {% for d in documentos_relacionados %}
+    <tr><td>{{ d.tipo }}</td><td>{{ d.numero }}</td><td>{{ d.ruc_emisor }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
 
   <div class="seccion-titulo">Traslado</div>
   <div class="info-grid">
     <div class="col">
       <p class="label">Punto de partida</p>
-      <p>{{ viaje.origen if viaje else '—' }}</p>
+      <p>{{ partida.direccion }}</p>
+      <p>{{ partida.lugar }} · UBIGEO {{ partida.ubigeo }}</p>
     </div>
     <div class="col">
       <p class="label">Punto de llegada</p>
-      <p>{{ viaje.destino if viaje else '—' }}</p>
+      <p>{{ llegada.direccion }}</p>
+      <p>{{ llegada.lugar }} · UBIGEO {{ llegada.ubigeo }}</p>
     </div>
   </div>
+  {% if guia.motivo_traslado %}<p style="margin-top:4px;"><span class="label">Motivo (según la guía del remitente):</span> {{ guia.motivo_traslado }}</p>{% endif %}
+
+  <div class="seccion-titulo">Vehículos y conductor</div>
   <table>
+    <tr><th>Vehículo</th><th>Placa</th><th>Tarjeta Única de Circulación</th></tr>
+    {% for v in vehiculos %}
+    <tr><td>{{ v.rol }}</td><td>{{ v.placa }}</td><td>{{ v.tuc or '—' }}</td></tr>
+    {% endfor %}
+  </table>
+  <table>
+    <tr><th>Conductor principal</th><th>DNI</th><th>Licencia de conducir</th></tr>
     <tr>
-      <th>Fecha de emisión</th><th>Motivo de traslado</th><th>Modalidad</th>
-      <th>Peso bruto total</th><th>N.° de bultos</th>
-    </tr>
-    <tr>
-      <td>{{ guia.fecha_emision.strftime('%d/%m/%Y') }}</td>
-      <td>{{ guia.motivo_traslado }}</td>
-      <td>{{ guia.modalidad_transporte.replace('_', ' ') }}</td>
-      <td>{{ "%.2f"|format(guia.peso_bruto_total_kg) }} kg</td>
-      <td>{{ guia.numero_bultos or '—' }}</td>
+      <td>{{ conductor.nombre }}</td>
+      <td>{{ conductor.dni }}</td>
+      <td>{{ conductor.licencia }}{% if conductor.categoria %} ({{ conductor.categoria }}){% endif %}</td>
     </tr>
   </table>
 
-  <div class="seccion-titulo">Datos del Transportista</div>
+  <div class="seccion-titulo">Bienes transportados</div>
+  {% if bienes %}
   <table>
-    <tr><th>Tracto</th><th>Carreta</th><th>Chofer</th><th>Licencia</th></tr>
+    <tr><th>N.°</th><th>Código</th><th>Descripción</th><th class="num">Cantidad</th><th>Unidad</th></tr>
+    {% for b in bienes %}
     <tr>
-      <td>{{ tracto.placa if tracto else '—' }}{% if tracto %} ({{ tracto.marca }}){% endif %}</td>
-      <td>{{ carreta.placa if carreta else 'No aplica' }}</td>
-      <td>{{ (chofer.nombres + ' ' + chofer.apellidos) if chofer else '—' }}</td>
-      <td>{{ chofer.licencia_numero if chofer else '—' }} ({{ chofer.licencia_categoria if chofer else '' }})</td>
+      <td>{{ loop.index }}</td>
+      <td>{{ b.codigo or '—' }}</td>
+      <td>{{ b.descripcion }}</td>
+      <td class="num">{{ "{:,.2f}".format(b.cantidad).rstrip('0').rstrip('.') }}</td>
+      <td>{{ b.unidad }}</td>
     </tr>
+    {% endfor %}
   </table>
+  {% else %}
+  <p style="margin-top:6px;">Según la guía de remisión remitente indicada en los documentos relacionados.</p>
+  {% endif %}
 
-  {% if viaje and viaje.numero %}<p style="margin-top: 10px;"><strong>Viaje asociado:</strong> {{ viaje.numero }}</p>{% endif %}
+  <div class="pie">
+    {% if guia.qr %}<img src="{{ guia.qr }}" alt="Código QR de consulta en SUNAT">{% endif %}
+    <div>
+      <p><span class="estado {{ guia.estado_sunat | lower }}">SUNAT: {{ guia.estado_sunat }}</span>{% if viaje_numero %} · Viaje {{ viaje_numero }}{% endif %}</p>
+      {% if guia.hash %}<p><span class="label">Código hash:</span> {{ guia.hash }}</p>{% endif %}
+      {% if guia.enlace_sunat %}<p><span class="label">Consulta en SUNAT:</span> {{ guia.enlace_sunat }}</p>{% endif %}
+      <p>Representación impresa de la Guía de Remisión Electrónica Transportista.</p>
+    </div>
+  </div>
 
-  <p style="margin-top: 16px;"><strong>Estado SUNAT:</strong> {{ guia.estado_sunat }}</p>
-
-  <footer>{{ empresa.razon_social }} · RUC {{ empresa.ruc }} · Documento generado por el sistema de gestión Transporte Príncipe</footer>
+  <footer>{{ empresa.razon_social }} · RUC {{ empresa.ruc }}</footer>
 </body>
 </html>

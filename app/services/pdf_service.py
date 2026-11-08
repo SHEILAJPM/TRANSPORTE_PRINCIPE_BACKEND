@@ -15,12 +15,15 @@ class MotorPdfNoDisponibleError(Exception):
     """
 
 
+def renderizar_html(nombre_plantilla: str, contexto: dict[str, Any]) -> str:
+    return _env.get_template(nombre_plantilla).render(**contexto)
+
+
 def renderizar_pdf(nombre_plantilla: str, contexto: dict[str, Any]) -> bytes:
     """Renderiza una plantilla Jinja2 (cotizacion.html, factura.html, guia_remision.html,
     constancia_pesos_medidas.html) a PDF, incluyendo el logo dinámico de la Empresa.
     """
-    plantilla = _env.get_template(nombre_plantilla)
-    html = plantilla.render(**contexto)
+    html = renderizar_html(nombre_plantilla, contexto)
 
     try:
         from weasyprint import HTML  # import perezoso: ver MotorPdfNoDisponibleError

@@ -283,3 +283,49 @@ def test_listados_de_guias_y_facturas_con_filtros_y_totales(entorno, monkeypatch
     assert totales["cantidad"] == len([f for f in facturas if f["estado_sunat"] == "ACEPTADO"])
     assert totales["total"] == sum(f["total"] for f in facturas if f["estado_sunat"] == "ACEPTADO")
     assert totales["detracciones"] == sum(f["detraccion_monto"] or 0 for f in facturas if f["estado_sunat"] == "ACEPTADO")
+
+
+def test_pdf_de_guia_y_factura_con_los_datos_correctos(entorno, sunat_simulada, monkeypatch, tmp_path):
+    """El PDF (representación impresa) debe mostrar las mismas partes que el XML:
+    remitente = cliente que envía la carga, destinatario = quien la recibe."""
+    from app.services import apisunat_facturacion_service as apisunat
+    from app.services import documentos_pdf_service
+    from app.services.pdf_service import renderizar_html
+
+    monkeypatch.setattr(documentos_pdf_service, "renderizar_pdf", lambda plantilla, ctx: renderizar_html(plantilla, ctx).encode())
+
+    async def emitir_falso(self, ruta, payload):
+        return {"success": True, "message": "Aceptado", "payload": {"estado": "ACEPTADO", "hash": "HASHFACTURA123"}}
+
+    monkeypatch.setattr(apisunat._ClienteApiSunatFacturacion, "emitir", emitir_falso)
+    http, ids = entorno
+
+    payload = _payload_activar(ids) | {
+        "destinatario_numero_documento": "20555555555", "destinatario_razon_social": "FERRETERIA AREQUIPA EIRL",
+        "remitente_guia_ruc_emisor": "20999999999", "remitente_guia_serie": "EG01", "remitente_guia_numero": "00000123",
+    }
+    viaje_id = http.post("/api/v1/viajes/activar", json=payload).json()["viaje"]["id"]
+    vista = http.post(f"/api/v1/viajes/{viaje_id}/guia-remision/vista-previa").json()
+    assert http.post(f"/api/v1/viajes/{viaje_id}/guia-remision/emitir-sunat", json={"huella_vista_previa": vista["huella"]}).status_code == 200
+
+    guia_html = http.get(f"/api/v1/viajes/{viaje_id}/guia-remision/pdf").text
+    (tmp_path / "guia.html").write_text(guia_html, encoding="utf-8")
+    remitente = guia_html.split(">Remitente<")[1].split(">Destinatario<")[0]
+    destinatario = guia_html.split(">Destinatario<")[1].split("Traslado")[0]
+    assert "CLIENTE SAC" in remitente and "20999999999" in remitente
+    assert "TRANSPORTE PRINCIPE" not in remitente  # antes ponía a la transportista como remitente
+    assert "FERRETERIA AREQUIPA EIRL" in destinatario and "20555555555" in destinatario
+    for esperado in ("TRANSPORTISTA", "15M21000123", "87654321", "Q87654321", "Cemento", "EG01-00000123", "UBIGEO 150101", "data:image/svg+xml"):
+        assert esperado in guia_html, esperado
+
+    for estado in ("EN_RUTA", "FINALIZADO"):
+        http.patch(f"/api/v1/viajes/{viaje_id}/estado", json={"estado": estado})
+    entrada = {"tipo_documento": "FACTURA", "precio": 1770, "precio_incluye_igv": True}
+    vista = http.post(f"/api/v1/viajes/{viaje_id}/comprobante/vista-previa", json=entrada).json()
+    assert http.post(f"/api/v1/viajes/{viaje_id}/comprobante/emitir", json=entrada | {"huella_vista_previa": vista["huella"]}).status_code == 200
+
+    factura_html = http.get(f"/api/v1/viajes/{viaje_id}/factura/pdf").text
+    (tmp_path / "factura.html").write_text(factura_html, encoding="utf-8")
+    for esperado in ("FACTURA ELECTRÓNICA", "CLIENTE SAC", "1,500.00", "270.00", "1,770.00",
+                     "MIL SETECIENTOS SETENTA CON 00/100 SOLES", "Detracción (4%)", "Contado", "HASHFACTURA123", "data:image/svg+xml"):
+        assert esperado in factura_html, esperado
