@@ -16,12 +16,13 @@ from app.schemas.sunat import (
     ConexionResponse,
     DniConsultaResponse,
     GuiaRemitenteImportadaResponse,
+    GuiaRemitenteTextoRequest,
     ParteGuia,
     PruebaConexionResponse,
     PuntoGuia,
     RucConsultaResponse,
 )
-from app.services.guia_remitente_pdf_service import es_pdf, leer_guia_remitente_pdf
+from app.services.guia_remitente_pdf_service import es_pdf, leer_guia_remitente_pdf, leer_guia_remitente_texto
 from app.services.guia_remitente_service import (
     TAMANO_MAXIMO_BYTES,
     GuiaRemitenteInvalidaError,
@@ -175,6 +176,41 @@ async def consultar_guia_remitente(
     except (GuiaRemitenteInvalidaError, XmlInvalidoError) as error:
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+    return _respuesta_importada(leida, cliente)
+
+
+@router.post("/guia-remitente/texto", response_model=GuiaRemitenteImportadaResponse)
+async def leer_guia_remitente_pegada(
+    body: GuiaRemitenteTextoRequest,
+    db: AsyncSession = Depends(get_db),
+    apisunat: ApiSunatService = Depends(get_apisunat_service),
+    usuario_actual: Usuario = Depends(require_roles(RolUsuario.ADMIN, RolUsuario.OPERADOR)),
+):
+    """Lee el "Detalle de GRE" que se copia desde SUNAT SOL (Consulta de GRE) y devuelve
+    el viaje prellenado: cliente, destinatario, partida y llegada con UBIGEO, peso,
+    fechas y bienes. Gratis y sin depender de una API: la API de SUNAT no permite traer
+    la guía de otra empresa."""
+    empresa = await db.get(Empresa, usuario_actual.empresa_id)
+    try:
+        leida = leer_guia_remitente_texto(body.texto, ruc_transportista=empresa.ruc if empresa else "")
+        cliente = await obtener_o_crear_cliente(
+            db=db, apisunat=apisunat, tipo_documento=TipoDocumentoIdentidad.RUC,
+            numero_documento=leida.remitente.numero_documento, usuario_id=usuario_actual.id,
+        )
+        if leida.destinatario is not None and not leida.destinatario.razon_social:
+            await _completar_nombre(apisunat, leida.destinatario, leida.advertencias)
+        await db.commit()
+    except GuiaRemitenteInvalidaError as error:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+    except ApiSunatError as error:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Se leyó la guía, pero no se pudo consultar el RUC del remitente: {error}",
+        )
+    finally:
+        await apisunat.cerrar()
     return _respuesta_importada(leida, cliente)
 
 

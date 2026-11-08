@@ -47,6 +47,10 @@ class ConsultaGuiaRemitenteRequest(BaseModel):
     numero: str = Field(pattern=r"^\d{1,8}$")
 
 
+class GuiaRemitenteTextoRequest(BaseModel):
+    texto: str = Field(min_length=40, max_length=50_000, description="Detalle de GRE copiado desde SUNAT SOL")
+
+
 class GuiaRemitenteImportadaResponse(BaseModel):
     """Borrador del viaje armado desde la guía de remitente del cliente. No crea el
     viaje: el frontend lo completa con tracto y chofer y lo envía a /viajes/activar."""

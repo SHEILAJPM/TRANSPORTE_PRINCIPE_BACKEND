@@ -24,9 +24,10 @@ def test_formato_sunat_sol():
     assert g.peso_bruto_kg == Decimal("28500.00")
     assert (g.fecha_emision, g.fecha_inicio_traslado) == (date(2026, 11, 5), date(2026, 11, 6))
     assert g.partida.ubigeo == "150119" and g.partida.direccion.startswith("AV. INDUSTRIAL 123")
-    assert g.llegada.ubigeo is None and "EJERCITO" in g.llegada.direccion
+    # Sin código en el PDF, el UBIGEO sale de "AREQUIPA - AREQUIPA - AREQUIPA".
+    assert g.llegada.ubigeo == "040101" and g.llegada.direccion == "AV. EJERCITO 100"
     assert g.motivo_codigo == "01"
-    assert any("UBIGEO del punto de llegada" in a for a in g.advertencias)
+    assert not any("UBIGEO del punto de llegada" in a for a in g.advertencias)
 
 
 def test_formato_privado_con_dni_y_toneladas():
