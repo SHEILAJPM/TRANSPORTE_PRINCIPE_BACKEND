@@ -94,14 +94,16 @@ class ClienteSunatGre:
         retry=retry_if_exception_type(httpx.TransportError),
     )
     async def _pedir_token(self) -> tuple[str, float]:
+        # Al copiar valores en Render es fácil arrastrar espacios o saltos de línea.
+        client_id = settings.SUNAT_GRE_CLIENT_ID.strip()
         response = await self._client.post(
-            f"{settings.SUNAT_GRE_TOKEN_URL}/{settings.SUNAT_GRE_CLIENT_ID}/oauth2/token/",
+            f"{settings.SUNAT_GRE_TOKEN_URL}/{client_id}/oauth2/token/",
             data={
                 "grant_type": "password",
                 "scope": _SCOPE,
-                "client_id": settings.SUNAT_GRE_CLIENT_ID,
-                "client_secret": settings.SUNAT_GRE_CLIENT_SECRET.get_secret_value(),
-                "username": settings.SUNAT_SOL_USUARIO,
+                "client_id": client_id,
+                "client_secret": settings.SUNAT_GRE_CLIENT_SECRET.get_secret_value().strip(),
+                "username": settings.SUNAT_SOL_USUARIO.strip(),
                 "password": settings.SUNAT_SOL_CLAVE.get_secret_value(),
             },
         )
