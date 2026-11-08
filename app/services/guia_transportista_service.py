@@ -84,7 +84,7 @@ async def construir_datos(db: AsyncSession, guia: GuiaRemision) -> tuple[ubl.Dat
     cliente = await db.get(Cliente, viaje.cliente_id)
     empresa = await db.get(Empresa, guia.empresa_id)
     if tracto is None or chofer is None or cliente is None or empresa is None:
-        raise DatosIncompletosError("Faltan datos del tracto, chofer, cliente o empresa para emitir la guía")
+        raise DatosIncompletosError("Faltan datos del camión, chofer, cliente o empresa para emitir la guía")
 
     advertencias: list[str] = []
 

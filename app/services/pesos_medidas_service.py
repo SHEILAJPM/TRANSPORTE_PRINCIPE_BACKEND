@@ -65,7 +65,7 @@ async def autocompletar_datos_vehiculo(db: AsyncSession, placa: str) -> DatosVeh
             peso_bruto_max_kg=float(carreta.peso_bruto_max_kg),
         )
 
-    raise VehiculoNoEncontradoError(f"No existe tracto ni carreta registrado con placa {placa_normalizada}")
+    raise VehiculoNoEncontradoError(f"No existe camión ni carreta registrado con placa {placa_normalizada}")
 
 
 async def construir_constancia_pesos_medidas(

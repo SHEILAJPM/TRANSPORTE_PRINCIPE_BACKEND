@@ -168,7 +168,7 @@ def validar(datos: DatosGuiaTransportista) -> ResultadoValidacion:
     if datos.peso_bruto_kg <= 0:
         r.errores.append("El peso bruto total debe ser mayor a cero")
 
-    for etiqueta, vehiculo in [("del tracto", datos.vehiculo_principal)] + [
+    for etiqueta, vehiculo in [("del camión", datos.vehiculo_principal)] + [
         (f"del vehículo secundario {i}", v) for i, v in enumerate(datos.vehiculos_secundarios, start=1)
     ]:
         if not _RE_PLACA.fullmatch(vehiculo.placa):

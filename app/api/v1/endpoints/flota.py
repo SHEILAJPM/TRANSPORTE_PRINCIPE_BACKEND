@@ -58,7 +58,7 @@ async def crear_tracto(
 ):
     ya_existe = (await db.execute(select(Tracto).where(Tracto.placa == body.placa))).scalar_one_or_none()
     if ya_existe is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ya existe un tracto con placa {body.placa}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Ya existe un camión con placa {body.placa}")
 
     tracto = Tracto(**body.model_dump())
     db.add(tracto)
@@ -78,7 +78,7 @@ async def obtener_tracto(
 ):
     tracto = await db.get(Tracto, tracto_id)
     if tracto is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracto no encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camión no encontrado")
     return tracto
 
 
@@ -91,7 +91,7 @@ async def actualizar_tracto(
 ):
     tracto = await db.get(Tracto, tracto_id)
     if tracto is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracto no encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camión no encontrado")
     for campo, valor in body.model_dump(exclude_unset=True).items():
         setattr(tracto, campo, valor)
     await db.commit()
@@ -108,7 +108,7 @@ async def registrar_mantenimiento_tracto(
 ):
     tracto = await db.get(Tracto, tracto_id)
     if tracto is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracto no encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camión no encontrado")
 
     mantenimiento = MantenimientoVehiculo(tracto_id=tracto_id, **body.model_dump())
     db.add(mantenimiento)

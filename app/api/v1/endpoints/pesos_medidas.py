@@ -67,7 +67,7 @@ async def crear_constancia(
     chofer = await db.get(Chofer, body.chofer_id)
     carreta = await db.get(Carreta, body.carreta_id) if body.carreta_id else None
     if tracto is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tracto no encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camión no encontrado")
     if chofer is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chofer no encontrado")
 

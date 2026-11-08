@@ -224,7 +224,7 @@ async def contexto_guia_remision(db: AsyncSession, guia_remision_id: uuid.UUID) 
             "lugar": f"{viaje.destino_distrito}, {viaje.destino_provincia}, {viaje.destino_departamento}" if viaje else "",
         },
         "vehiculos": [
-            {"rol": "Principal (tracto)", "placa": v.placa, "tuc": v.tarjeta_unica_circulacion}
+            {"rol": "Principal (camión)", "placa": v.placa, "tuc": v.tarjeta_unica_circulacion}
             for v in [datos.vehiculo_principal]
         ]
         + [
