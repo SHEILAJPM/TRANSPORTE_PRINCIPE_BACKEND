@@ -329,3 +329,51 @@ def test_pdf_de_guia_y_factura_con_los_datos_correctos(entorno, sunat_simulada, 
     for esperado in ("FACTURA ELECTRÓNICA", "CLIENTE SAC", "1,500.00", "270.00", "1,770.00",
                      "MIL SETECIENTOS SETENTA CON 00/100 SOLES", "Detracción (4%)", "Contado", "HASHFACTURA123", "data:image/svg+xml"):
         assert esperado in factura_html, esperado
+
+
+def test_deposito_de_detraccion_por_cliente_o_por_la_empresa(entorno, monkeypatch):
+    from app.services import apisunat_facturacion_service as apisunat
+
+    async def emitir_falso(self, ruta, payload):
+        return {"success": True, "message": "Aceptado", "payload": {"estado": "ACEPTADO", "hash": "h"}}
+
+    monkeypatch.setattr(apisunat._ClienteApiSunatFacturacion, "emitir", emitir_falso)
+    http, ids = entorno
+    viaje_id = _viaje_finalizado(http, ids)
+    for estado in ("EN_RUTA", "FINALIZADO"):
+        http.patch(f"/api/v1/viajes/{viaje_id}/estado", json={"estado": estado})
+    entrada = {"tipo_documento": "FACTURA", "precio": 5900, "precio_incluye_igv": True}
+    vista = http.post(f"/api/v1/viajes/{viaje_id}/comprobante/vista-previa", json=entrada).json()
+    factura = http.post(f"/api/v1/viajes/{viaje_id}/comprobante/emitir", json=entrada | {"huella_vista_previa": vista["huella"]}).json()
+    assert factura["detraccion_monto"] == 236.0
+
+    pendientes = http.get("/api/v1/comprobantes/facturas", params={"detraccion": "PENDIENTE"}).json()
+    assert any(f["id"] == factura["id"] and f["detraccion_estado"] == "PENDIENTE" for f in pendientes)
+
+    # El cliente pagó el total: la empresa deposita la detracción.
+    r = http.put(f"/api/v1/comprobantes/facturas/{factura['id']}/detraccion",
+                 json={"depositada_por": "EMPRESA", "fecha_deposito": "2026-11-08", "numero_constancia": " 00012345 "})
+    assert r.status_code == 200, r.text
+    assert (r.json()["detraccion_depositada_por"], r.json()["detraccion_constancia"], r.json()["detraccion_monto_depositado"]) == ("EMPRESA", "00012345", 236.0)
+
+    depositadas = http.get("/api/v1/comprobantes/facturas", params={"detraccion": "DEPOSITADA"}).json()
+    assert any(f["id"] == factura["id"] and f["detraccion_depositada_por"] == "EMPRESA" for f in depositadas)
+    assert all(f["id"] != factura["id"] for f in http.get("/api/v1/comprobantes/facturas", params={"detraccion": "PENDIENTE"}).json())
+    totales = http.get("/api/v1/comprobantes/facturas/totales").json()
+    assert totales["detracciones_depositadas"] >= 236.0
+    assert totales["detracciones_pendientes"] + totales["detracciones_depositadas"] == totales["detracciones"]
+
+    # Deshacer un registro hecho por error.
+    r = http.delete(f"/api/v1/comprobantes/facturas/{factura['id']}/detraccion")
+    assert r.status_code == 200 and r.json()["detraccion_depositada_por"] is None
+
+    # Un comprobante sin detracción no admite el registro.
+    boleta_viaje = _viaje_finalizado(http, ids)
+    for estado in ("EN_RUTA", "FINALIZADO"):
+        http.patch(f"/api/v1/viajes/{boleta_viaje}/estado", json={"estado": estado})
+    entrada = {"tipo_documento": "BOLETA", "precio": 300, "precio_incluye_igv": True}
+    vista = http.post(f"/api/v1/viajes/{boleta_viaje}/comprobante/vista-previa", json=entrada).json()
+    boleta = http.post(f"/api/v1/viajes/{boleta_viaje}/comprobante/emitir", json=entrada | {"huella_vista_previa": vista["huella"]}).json()
+    r = http.put(f"/api/v1/comprobantes/facturas/{boleta['id']}/detraccion",
+                 json={"depositada_por": "CLIENTE", "fecha_deposito": "2026-11-08", "numero_constancia": "1"})
+    assert r.status_code == 400 and "no tiene detracción" in r.json()["detail"]

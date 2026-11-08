@@ -10,7 +10,7 @@ from sqlalchemy.orm import aliased
 from app.models.chofer import Chofer
 from app.models.cliente import Cliente
 from app.models.comprobante import Factura, GuiaRemision
-from app.models.enums import EstadoSunat, EstadoViaje, TipoDocumentoVenta
+from app.models.enums import DepositanteDetraccion, EstadoSunat, EstadoViaje, TipoDocumentoVenta
 from app.models.flota import Carreta, Tracto
 from app.models.viaje import Viaje
 from app.services.facturacion_viaje_service import ESTADOS_VIAJE_FACTURABLES, comprobante_bloquea_nueva_emision
@@ -27,6 +27,7 @@ class FiltrosComprobantes:
     chofer_id: uuid.UUID | None = None
     estado_sunat: EstadoSunat | None = None
     tipo_documento: TipoDocumentoVenta | None = None
+    detraccion: str | None = None  # PENDIENTE | DEPOSITADA
     q: str | None = None
 
 
@@ -71,6 +72,10 @@ class FacturaListItem:
     igv: float
     total: float
     detraccion_monto: float | None
+    detraccion_estado: str | None
+    detraccion_depositada_por: DepositanteDetraccion | None
+    detraccion_fecha_deposito: date | None
+    detraccion_constancia: str | None
     estado_sunat: EstadoSunat
     mensaje_sunat: str | None
     pdf_url: str | None
@@ -87,6 +92,8 @@ class TotalesFacturacion:
     igv: float
     total: float
     detracciones: float
+    detracciones_depositadas: float
+    detracciones_pendientes: float
 
 
 @dataclass
@@ -197,6 +204,10 @@ async def listar_facturas(
         stmt = stmt.where(Factura.estado_sunat == filtros.estado_sunat)
     if filtros.tipo_documento is not None:
         stmt = stmt.where(Factura.tipo_documento == filtros.tipo_documento)
+    if filtros.detraccion == "PENDIENTE":
+        stmt = stmt.where(Factura.detraccion_monto.is_not(None), Factura.detraccion_depositada_por.is_(None))
+    elif filtros.detraccion == "DEPOSITADA":
+        stmt = stmt.where(Factura.detraccion_depositada_por.is_not(None))
     if filtros.q:
         patron = f"%{filtros.q.strip()}%"
         stmt = stmt.where(
@@ -229,6 +240,10 @@ async def listar_facturas(
             igv=float(factura.igv),
             total=float(factura.total),
             detraccion_monto=float(factura.detraccion_monto) if factura.detraccion_monto is not None else None,
+            detraccion_estado=estado_detraccion(factura),
+            detraccion_depositada_por=factura.detraccion_depositada_por,
+            detraccion_fecha_deposito=factura.detraccion_fecha_deposito,
+            detraccion_constancia=factura.detraccion_constancia,
             estado_sunat=factura.estado_sunat,
             mensaje_sunat=factura.mensaje_sunat,
             pdf_url=factura.pdf_url,
@@ -240,7 +255,7 @@ async def listar_facturas(
 
 
 def totalizar(facturas: list[FacturaListItem]) -> TotalesFacturacion:
-    base = igv = total = detracciones = Decimal(0)
+    base = igv = total = detracciones = depositadas = Decimal(0)
     cantidad = 0
     for f in facturas:
         if f.estado_sunat != EstadoSunat.ACEPTADO:
@@ -250,10 +265,39 @@ def totalizar(facturas: list[FacturaListItem]) -> TotalesFacturacion:
         igv += signo * Decimal(str(f.igv))
         total += signo * Decimal(str(f.total))
         detracciones += signo * Decimal(str(f.detraccion_monto or 0))
+        if f.detraccion_estado == "DEPOSITADA":
+            depositadas += Decimal(str(f.detraccion_monto or 0))
         cantidad += 1
     return TotalesFacturacion(
-        cantidad=cantidad, base=float(base), igv=float(igv), total=float(total), detracciones=float(detracciones)
+        cantidad=cantidad, base=float(base), igv=float(igv), total=float(total), detracciones=float(detracciones),
+        detracciones_depositadas=float(depositadas), detracciones_pendientes=float(detracciones - depositadas),
     )
+
+
+def estado_detraccion(factura: Factura) -> str | None:
+    if not factura.detraccion_monto:
+        return None
+    return "DEPOSITADA" if factura.detraccion_depositada_por is not None else "PENDIENTE"
+
+
+class DetraccionNoAplicaError(Exception):
+    pass
+
+
+def registrar_deposito_detraccion(
+    factura: Factura, *, depositada_por: DepositanteDetraccion | None, fecha_deposito: date | None = None,
+    numero_constancia: str | None = None, monto: Decimal | None = None,
+) -> Factura:
+    """Registra (o quita, con `depositada_por=None`) la constancia de depósito."""
+    if not factura.detraccion_monto:
+        raise DetraccionNoAplicaError("Este comprobante no tiene detracción")
+    if factura.estado_sunat != EstadoSunat.ACEPTADO and depositada_por is not None:
+        raise DetraccionNoAplicaError("Solo se registra el depósito de comprobantes aceptados por SUNAT")
+    factura.detraccion_depositada_por = depositada_por
+    factura.detraccion_fecha_deposito = fecha_deposito if depositada_por else None
+    factura.detraccion_constancia = numero_constancia.strip() if depositada_por and numero_constancia else None
+    factura.detraccion_monto_depositado = (monto or factura.detraccion_monto) if depositada_por else None
+    return factura
 
 
 async def listar_facturables(db: AsyncSession, *, empresa_id: uuid.UUID) -> list[ViajeFacturable]:

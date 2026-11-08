@@ -1,6 +1,8 @@
 import uuid
 from dataclasses import asdict
 from datetime import date
+from decimal import Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.encoders import jsonable_encoder
@@ -26,6 +28,7 @@ from app.schemas.comprobante import (
     GuiaRemisionListItemResponse,
     GuiaRemisionResponse,
     GuiaVistaPreviaResponse,
+    RegistrarDepositoDetraccionRequest,
     TotalesFacturacionResponse,
     ViajeFacturableResponse,
 )
@@ -42,7 +45,9 @@ from app.services.guia_transportista_service import GuiaNoEmitibleError, HuellaN
 from app.services.archivos_privados_service import ArchivoPrivadoNoEncontradoError
 from app.services.sunat_gre_api_service import SunatGreError
 from app.services.comprobantes_service import (
+    DetraccionNoAplicaError,
     FiltrosComprobantes,
+    registrar_deposito_detraccion,
     listar_facturables,
     listar_facturas,
     listar_guias_remision,
@@ -208,11 +213,12 @@ def _filtros(
     chofer_id: uuid.UUID | None = None,
     estado_sunat: EstadoSunat | None = None,
     tipo_documento: TipoDocumentoVenta | None = None,
+    detraccion: Literal["PENDIENTE", "DEPOSITADA"] | None = None,
     q: str | None = None,
 ) -> FiltrosComprobantes:
     return FiltrosComprobantes(
         desde=desde, hasta=hasta, cliente_id=cliente_id, placa=placa, chofer_id=chofer_id,
-        estado_sunat=estado_sunat, tipo_documento=tipo_documento, q=q,
+        estado_sunat=estado_sunat, tipo_documento=tipo_documento, detraccion=detraccion, q=q,
     )
 
 
@@ -246,6 +252,52 @@ async def totales_facturas_endpoint(
     """Base, IGV, total y detracciones del periodo filtrado (solo aceptados; las notas de
     crédito restan)."""
     return totalizar(await listar_facturas(db, empresa_id=usuario_actual.empresa_id, filtros=filtros))
+
+
+@router_listado.put("/facturas/{factura_id}/detraccion", response_model=FacturaResponse)
+async def registrar_deposito_detraccion_endpoint(
+    factura_id: uuid.UUID,
+    body: RegistrarDepositoDetraccionRequest,
+    db: AsyncSession = Depends(get_db),
+    usuario_actual: Usuario = Depends(require_roles(RolUsuario.ADMIN, RolUsuario.CONTABILIDAD, RolUsuario.OPERADOR)),
+):
+    """Registra la constancia de depósito de la detracción: la depositó el cliente o, si
+    el cliente pagó el total, la propia empresa."""
+    factura = await _factura_de_la_empresa_o_404(db, factura_id, usuario_actual.empresa_id)
+    try:
+        registrar_deposito_detraccion(
+            factura, depositada_por=body.depositada_por, fecha_deposito=body.fecha_deposito,
+            numero_constancia=body.numero_constancia, monto=Decimal(str(body.monto)) if body.monto else None,
+        )
+    except DetraccionNoAplicaError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
+    await db.commit()
+    await db.refresh(factura)
+    return factura
+
+
+@router_listado.delete("/facturas/{factura_id}/detraccion", response_model=FacturaResponse)
+async def quitar_deposito_detraccion_endpoint(
+    factura_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    usuario_actual: Usuario = Depends(require_roles(RolUsuario.ADMIN, RolUsuario.CONTABILIDAD)),
+):
+    """Deshace un registro de depósito hecho por error (la detracción vuelve a pendiente)."""
+    factura = await _factura_de_la_empresa_o_404(db, factura_id, usuario_actual.empresa_id)
+    try:
+        registrar_deposito_detraccion(factura, depositada_por=None)
+    except DetraccionNoAplicaError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
+    await db.commit()
+    await db.refresh(factura)
+    return factura
+
+
+async def _factura_de_la_empresa_o_404(db: AsyncSession, factura_id: uuid.UUID, empresa_id: uuid.UUID) -> Factura:
+    factura = await db.get(Factura, factura_id)
+    if factura is None or factura.empresa_id != empresa_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comprobante no encontrado")
+    return factura
 
 
 @router_listado.get("/facturables", response_model=list[ViajeFacturableResponse])

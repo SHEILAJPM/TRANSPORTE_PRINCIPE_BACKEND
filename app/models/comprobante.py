@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPKMixin
-from app.models.enums import EstadoSunat, TipoDocumentoVenta
+from app.models.enums import DepositanteDetraccion, EstadoSunat, TipoDocumentoVenta
 
 
 class GuiaRemision(Base, UUIDPKMixin, TimestampMixin):
@@ -121,6 +121,13 @@ class Factura(Base, UUIDPKMixin, TimestampMixin):
     detraccion_monto: Mapped[float | None] = mapped_column(Numeric(12, 2))
     # Cuenta del Banco de la Nación vigente al emitir (copia de Empresa.cuenta_detracciones).
     detraccion_cuenta: Mapped[str | None] = mapped_column(String(20))
+    # Depósito de la detracción (constancia del Banco de la Nación). Sin registrar = pendiente.
+    detraccion_depositada_por: Mapped[DepositanteDetraccion | None] = mapped_column(
+        Enum(DepositanteDetraccion, name="depositante_detraccion")
+    )
+    detraccion_fecha_deposito: Mapped[date | None]
+    detraccion_constancia: Mapped[str | None] = mapped_column(String(30))
+    detraccion_monto_depositado: Mapped[float | None] = mapped_column(Numeric(12, 2))
 
     # Snapshot del receptor tal como se envió a SUNAT. Puede diferir del cliente del
     # viaje (p.ej. boleta "CLIENTES VARIOS" sin documento por un monto menor a S/ 700).

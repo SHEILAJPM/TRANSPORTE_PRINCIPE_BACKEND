@@ -72,6 +72,14 @@ class ReceptorComprobante(str, enum.Enum):
     SIN_DOCUMENTO = "SIN_DOCUMENTO"  # "CLIENTES VARIOS": solo boleta y total menor a S/ 700
 
 
+class DepositanteDetraccion(str, enum.Enum):
+    """Quién depositó la detracción en el Banco de la Nación. Normalmente el cliente;
+    si el cliente pagó el total sin descontarla, la deposita la propia empresa."""
+
+    CLIENTE = "CLIENTE"
+    EMPRESA = "EMPRESA"
+
+
 class EstadoSunat(str, enum.Enum):
     PENDIENTE = "PENDIENTE"
     ACEPTADO = "ACEPTADO"

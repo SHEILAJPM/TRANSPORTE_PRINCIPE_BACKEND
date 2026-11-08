@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field
 
-from app.models.enums import EstadoSunat, ReceptorComprobante, TipoDocumentoVenta
+from app.models.enums import DepositanteDetraccion, EstadoSunat, ReceptorComprobante, TipoDocumentoVenta
 from app.schemas.cliente import ClienteResponse
 
 
@@ -115,11 +115,24 @@ class FacturaListItemResponse(BaseModel):
     igv: float
     total: float
     detraccion_monto: float | None
+    detraccion_estado: str | None  # None (no aplica) | PENDIENTE | DEPOSITADA
+    detraccion_depositada_por: DepositanteDetraccion | None
+    detraccion_fecha_deposito: date | None
+    detraccion_constancia: str | None
     estado_sunat: EstadoSunat
     mensaje_sunat: str | None
     pdf_url: str | None
     xml_url: str | None
     cdr_url: str | None
+
+
+class RegistrarDepositoDetraccionRequest(BaseModel):
+    """Constancia de depósito de la detracción en el Banco de la Nación."""
+
+    depositada_por: DepositanteDetraccion
+    fecha_deposito: date
+    numero_constancia: str = Field(min_length=1, max_length=30)
+    monto: float | None = Field(default=None, gt=0)  # por defecto, el de la factura
 
 
 class TotalesFacturacionResponse(BaseModel):
@@ -130,6 +143,8 @@ class TotalesFacturacionResponse(BaseModel):
     igv: float
     total: float
     detracciones: float
+    detracciones_depositadas: float
+    detracciones_pendientes: float
 
 
 class ViajeFacturableResponse(BaseModel):
@@ -175,6 +190,10 @@ class FacturaResponse(BaseModel):
     detraccion_porcentaje: float | None = None
     detraccion_monto: float | None = None
     detraccion_cuenta: str | None = None
+    detraccion_depositada_por: DepositanteDetraccion | None = None
+    detraccion_fecha_deposito: date | None = None
+    detraccion_constancia: str | None = None
+    detraccion_monto_depositado: float | None = None
     receptor_tipo_documento: str | None = None
     receptor_numero_documento: str | None = None
     receptor_razon_social: str | None = None
