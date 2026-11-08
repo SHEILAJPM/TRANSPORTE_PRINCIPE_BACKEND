@@ -12,6 +12,7 @@ from app.schemas.cliente import ClienteResponse
 from app.schemas.comprobante import BienGuia
 from app.schemas.sunat import (
     CertificadoEstadoResponse,
+    ConsultaGuiaRemitenteRequest,
     ConexionResponse,
     DniConsultaResponse,
     GuiaRemitenteImportadaResponse,
@@ -29,6 +30,7 @@ from app.services.guia_remitente_service import (
 )
 from app.services.sunat_certificado_service import CertificadoSunatError, cargar_certificado
 from app.services.sunat_conexion_service import estado_conexiones, probar_conexion_gre
+from app.services.sunat_gre_api_service import ClienteSunatGre, SunatGreError
 from app.services.sunat_service import (
     ApiSunatDocumentoInvalidoError,
     ApiSunatError,
@@ -122,6 +124,60 @@ async def _completar_nombre(apisunat: ApiSunatService, parte, advertencias: list
         advertencias.append(f"No se pudo consultar el nombre del destinatario ({parte.numero_documento}): escríbelo a mano.")
 
 
+def _respuesta_importada(leida, cliente) -> GuiaRemitenteImportadaResponse:
+    return GuiaRemitenteImportadaResponse(
+        cliente=ClienteResponse.model_validate(cliente),
+        remitente_guia_ruc_emisor=leida.remitente.numero_documento,
+        remitente_guia_serie=leida.serie,
+        remitente_guia_numero=leida.numero,
+        fecha_emision_guia=leida.fecha_emision,
+        destinatario=ParteGuia(**vars(leida.destinatario)) if leida.destinatario else None,
+        origen=PuntoGuia(**vars(leida.partida)),
+        destino=PuntoGuia(**vars(leida.llegada)),
+        peso_tm=float(leida.peso_bruto_kg / 1000) if leida.peso_bruto_kg is not None else None,
+        numero_bultos=leida.numero_bultos,
+        fecha_inicio_traslado=leida.fecha_inicio_traslado,
+        motivo_traslado=(
+            f"{leida.motivo_codigo} - {leida.motivo_descripcion}" if leida.motivo_codigo else leida.motivo_descripcion
+        ),
+        bienes=[
+            BienGuia(descripcion=b.descripcion, cantidad=float(b.cantidad), unidad=b.unidad, codigo=b.codigo)
+            for b in leida.bienes
+        ],
+        advertencias=leida.advertencias,
+    )
+
+
+@router.post("/guia-remitente/consultar", response_model=GuiaRemitenteImportadaResponse)
+async def consultar_guia_remitente(
+    body: ConsultaGuiaRemitenteRequest,
+    db: AsyncSession = Depends(get_db),
+    usuario_actual: Usuario = Depends(require_roles(RolUsuario.ADMIN, RolUsuario.OPERADOR)),
+):
+    """Trae de SUNAT la guía de remitente del cliente con solo su RUC, serie y número
+    (la empresa debe figurar en ella como transportista) y devuelve el viaje prellenado
+    igual que al subir el XML. Solo consulta; no envía nada a SUNAT."""
+    empresa = await db.get(Empresa, usuario_actual.empresa_id)
+    try:
+        sunat = ClienteSunatGre()
+    except SunatGreError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error))
+    try:
+        xml = await sunat.descargar_comprobante(body.ruc, "09", body.serie.upper(), body.numero)
+    except SunatGreError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    finally:
+        await sunat.cerrar()
+    try:
+        leida = leer_guia_remitente(xml, ruc_transportista=empresa.ruc if empresa else "")
+        cliente = await obtener_o_crear_cliente_remitente(db, leida.remitente)
+        await db.commit()
+    except (GuiaRemitenteInvalidaError, XmlInvalidoError) as error:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+    return _respuesta_importada(leida, cliente)
+
+
 @router.post("/guia-remitente/importar", response_model=GuiaRemitenteImportadaResponse)
 async def importar_guia_remitente(
     archivo: UploadFile = File(..., description="XML o PDF de la Guía de Remisión Remitente (tipo 09) del cliente"),
@@ -164,27 +220,7 @@ async def importar_guia_remitente(
     finally:
         await apisunat.cerrar()
 
-    return GuiaRemitenteImportadaResponse(
-        cliente=ClienteResponse.model_validate(cliente),
-        remitente_guia_ruc_emisor=leida.remitente.numero_documento,
-        remitente_guia_serie=leida.serie,
-        remitente_guia_numero=leida.numero,
-        fecha_emision_guia=leida.fecha_emision,
-        destinatario=ParteGuia(**vars(leida.destinatario)) if leida.destinatario else None,
-        origen=PuntoGuia(**vars(leida.partida)),
-        destino=PuntoGuia(**vars(leida.llegada)),
-        peso_tm=float(leida.peso_bruto_kg / 1000) if leida.peso_bruto_kg is not None else None,
-        numero_bultos=leida.numero_bultos,
-        fecha_inicio_traslado=leida.fecha_inicio_traslado,
-        motivo_traslado=(
-            f"{leida.motivo_codigo} - {leida.motivo_descripcion}" if leida.motivo_codigo else leida.motivo_descripcion
-        ),
-        bienes=[
-            BienGuia(descripcion=b.descripcion, cantidad=float(b.cantidad), unidad=b.unidad, codigo=b.codigo)
-            for b in leida.bienes
-        ],
-        advertencias=leida.advertencias,
-    )
+    return _respuesta_importada(leida, cliente)
 
 
 @router.get("/certificado/estado", response_model=CertificadoEstadoResponse)

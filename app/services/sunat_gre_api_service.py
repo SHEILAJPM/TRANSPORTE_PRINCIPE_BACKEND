@@ -8,7 +8,10 @@ SUNAT no tiene entorno beta para GRE: cada envío es real.
 
 import asyncio
 import base64
+import binascii
+import codecs
 import hashlib
+import json
 import io
 import time
 import zipfile
@@ -54,6 +57,45 @@ def empaquetar_zip(nombre_archivo: str, xml: bytes) -> bytes:
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_:
         zip_.writestr(f"{nombre_archivo}.xml", xml)
     return buffer.getvalue()
+
+
+def extraer_xml(contenido: bytes, _profundidad: int = 0) -> bytes | None:
+    """Saca el XML de lo que devuelva SUNAT: XML directo, un ZIP, o un JSON con el
+    XML/ZIP en base64 en alguno de sus campos."""
+    if _profundidad > 3 or not contenido:
+        return None
+    if contenido[:2] == b"PK":
+        try:
+            with zipfile.ZipFile(io.BytesIO(contenido)) as zip_:
+                for nombre in zip_.namelist():
+                    if nombre.lower().endswith(".xml"):
+                        return zip_.read(nombre)
+        except zipfile.BadZipFile:
+            return None
+        return None
+    sin_bom = contenido.removeprefix(codecs.BOM_UTF8).lstrip()
+    if sin_bom.startswith(b"<"):
+        return sin_bom
+    try:
+        cuerpo = json.loads(contenido)
+    except ValueError:
+        return None
+    pendientes: list[Any] = [cuerpo]
+    while pendientes:
+        valor = pendientes.pop()
+        if isinstance(valor, dict):
+            pendientes.extend(valor.values())
+        elif isinstance(valor, list):
+            pendientes.extend(valor)
+        elif isinstance(valor, str) and len(valor) > 100:
+            try:
+                decodificado = base64.b64decode(valor, validate=True)
+            except (binascii.Error, ValueError):
+                continue
+            xml = extraer_xml(decodificado, _profundidad + 1)
+            if xml:
+                return xml
+    return None
 
 
 def _mensaje_error(response: httpx.Response) -> str:
@@ -178,6 +220,34 @@ class ClienteSunatGre:
             f"{settings.SUNAT_GRE_API_URL}/contribuyente/gem/comprobantes/envios/{ticket}",
             headers={"Authorization": f"Bearer {token}"},
         )
+
+    async def descargar_comprobante(self, ruc_emisor: str, codigo: str, serie: str, numero: str) -> bytes:
+        """Pide a SUNAT el XML de una GRE ya emitida (p.ej. la guía de remitente del
+        cliente, donde esta empresa figura como transportista). Solo consulta: no envía
+        nada. Lanza SunatGreError si SUNAT no la entrega."""
+        identificadores = list(
+            dict.fromkeys([f"{ruc_emisor}-{codigo}-{serie}-{int(numero)}", f"{ruc_emisor}-{codigo}-{serie}-{numero}"])
+        )
+        ultimo_error = ""
+        for identificador in identificadores:
+            url = f"{settings.SUNAT_GRE_API_URL}/contribuyente/gem/comprobantes/{identificador}"
+            for intento in range(2):
+                token = await self._token(renovar=intento > 0)
+                try:
+                    response = await self._client.get(url, headers={"Authorization": f"Bearer {token}"})
+                except httpx.TransportError as error:
+                    raise SunatGreError(f"No se pudo conectar con SUNAT para consultar la guía: {error}") from error
+                if response.status_code == 401 and intento == 0:
+                    continue
+                break
+            if response.status_code == 200:
+                xml = extraer_xml(response.content)
+                if xml:
+                    return xml
+                ultimo_error = f"respuesta sin XML: {response.text[:200]}"
+            else:
+                ultimo_error = f"HTTP {response.status_code}: {_mensaje_error(response)}"
+        raise SunatGreError(f"SUNAT no entregó la guía {serie}-{numero} del RUC {ruc_emisor} ({ultimo_error})")
 
     async def consultar_ticket(self, ticket: str) -> RespuestaTicket:
         for intento in range(2):

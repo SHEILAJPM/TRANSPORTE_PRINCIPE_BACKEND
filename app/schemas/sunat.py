@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.cliente import ClienteResponse
 from app.schemas.comprobante import BienGuia
@@ -39,6 +39,12 @@ class ParteGuia(BaseModel):
 class PuntoGuia(BaseModel):
     ubigeo: str | None
     direccion: str | None
+
+
+class ConsultaGuiaRemitenteRequest(BaseModel):
+    ruc: str = Field(pattern=r"^\d{11}$", description="RUC del cliente que emitió la guía")
+    serie: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9]{3}$")
+    numero: str = Field(pattern=r"^\d{1,8}$")
 
 
 class GuiaRemitenteImportadaResponse(BaseModel):
