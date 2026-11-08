@@ -173,16 +173,16 @@ def _parte_con_nombre(rotulo: str, texto: str) -> tuple[str, str, str] | None:
 
 
 def leer_guia_remitente_pdf(contenido: bytes, ruc_transportista: str) -> GuiaRemitenteLeida:
-    return leer_guia_remitente_texto(_texto_pdf(contenido), ruc_transportista, fuente="un PDF")
+    return leer_guia_remitente_texto(_texto_pdf(contenido), ruc_transportista, fuente="de un PDF")
 
 
 def leer_guia_remitente_texto(
-    texto: str, ruc_transportista: str, fuente: str = "el detalle copiado de SUNAT"
+    texto: str, ruc_transportista: str, fuente: str = "del detalle copiado de SUNAT"
 ) -> GuiaRemitenteLeida:
     texto = html.unescape(texto).replace("\r\n", "\n")
     if len(re.sub(r"\s", "", texto)) < 40:
         raise GuiaRemitenteInvalidaError("El texto está vacío o incompleto: copia todo el Detalle de GRE desde SOL.")
-    advertencias = [f"Datos leídos de {fuente}: revisa cada campo antes de activar el viaje."]
+    advertencias = [f"Datos leídos {fuente}: revisa cada campo antes de activar el viaje."]
 
     if _buscar(r"TRANSPORTISTA", texto) and not _buscar(r"REMITENTE", texto):
         raise GuiaRemitenteInvalidaError("Parece una guía transportista; se esperaba la guía de remisión remitente del cliente")
